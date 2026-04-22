@@ -1,6 +1,6 @@
 import { Product } from './types';
 
-export const ADMIN_PASSWORD = "Apollo@123";
+export const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "Apollo@123";
 
 export const MOCK_PRODUCTS: Product[] = [
   {

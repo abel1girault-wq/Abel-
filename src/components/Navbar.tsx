@@ -18,7 +18,7 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === ADMIN_PASSWORD) {
-      localStorage.setItem('fidgethub_auth', 'true');
+      sessionStorage.setItem('fidgethub_auth', 'true');
       setShowAdminLogin(false);
       setPassword('');
       setError(false);
@@ -41,16 +41,14 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
       </div>
 
       <div className="ml-auto flex items-center gap-3">
-        {/* Admin Login Box Embedded Style */}
-        <div className="hidden md:flex items-center gap-2 bg-slate-50 p-1 rounded-md border border-slate-200">
-          <span className="text-[10px] uppercase font-bold text-slate-400 px-2 tracking-wider flex items-center gap-1">
-            <Terminal className="w-3 h-3" /> Admin Portal
-          </span>
+        {/* Admin Login - Discreet Icon */}
+        <div className="flex items-center">
           <button 
             onClick={() => setShowAdminLogin(!showAdminLogin)}
-            className="bg-indigo-600 text-white px-3 py-1 text-xs font-semibold rounded hover:bg-indigo-700 transition-colors uppercase"
+            className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"
+            title="Admin"
           >
-            Access
+            <Shield className="w-4 h-4" />
           </button>
         </div>
         

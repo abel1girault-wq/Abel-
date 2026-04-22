@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin } from 'lucide-react';
+import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut } from 'lucide-react';
 import { Order, Product } from '../types';
 
 interface AdminDashboardProps {
@@ -121,6 +121,11 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
   const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
+  const handleLogout = () => {
+    sessionStorage.removeItem('fidgethub_auth');
+    window.location.href = '/';
+  };
+
   return (
     <div className="pt-20 pb-20 px-6 max-w-7xl mx-auto flex flex-col h-screen overflow-hidden">
       {/* Header & Meta */}
@@ -133,15 +138,21 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setShowSettings(true)}
-            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-slate-50 transition-all"
+            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-slate-50 transition-all"
           >
             Settings
           </button>
           <button 
             onClick={() => setShowAddProduct(true)}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
           >
             <Plus className="w-4 h-4" /> Add Product
+          </button>
+          <button 
+            onClick={handleLogout}
+            className="bg-slate-800 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all"
+          >
+            <LogOut className="w-4 h-4" /> Log Out
           </button>
         </div>
       </div>

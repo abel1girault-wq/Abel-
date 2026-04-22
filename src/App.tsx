@@ -16,7 +16,7 @@ import { Radar, ShoppingCart, Package, Shield } from 'lucide-react';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const isAuth = localStorage.getItem('fidgethub_auth') === 'true';
+  const isAuth = sessionStorage.getItem('fidgethub_auth') === 'true';
   return isAuth ? <>{children}</> : <Navigate to="/" />;
 };
 
