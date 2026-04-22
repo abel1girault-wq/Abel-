@@ -16,8 +16,8 @@ import { Radar, ShoppingCart, Package, Shield } from 'lucide-react';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const isAuth = sessionStorage.getItem('fidgethub_auth') === 'true';
-  return isAuth ? <>{children}</> : <Navigate to="/" />;
+  const isAuth = sessionStorage.getItem('fidgethub_auth_session') === 'active';
+  return isAuth ? <>{children}</> : <Navigate to="/" replace />;
 };
 
 export default function App() {
@@ -26,6 +26,9 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
+    // Security: Clear legacy persistent auth logs if any
+    localStorage.removeItem('fidgethub_auth');
+    
     const stored = localStorage.getItem('fidgethub_products');
     if (stored) {
       setProducts(JSON.parse(stored));

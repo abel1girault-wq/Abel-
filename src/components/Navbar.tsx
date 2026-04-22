@@ -17,8 +17,12 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ADMIN_PASSWORD) {
+      setError(true);
+      return;
+    }
     if (password === ADMIN_PASSWORD) {
-      sessionStorage.setItem('fidgethub_auth', 'true');
+      sessionStorage.setItem('fidgethub_auth_session', 'active');
       setShowAdminLogin(false);
       setPassword('');
       setError(false);

@@ -122,7 +122,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
   const handleLogout = () => {
-    sessionStorage.removeItem('fidgethub_auth');
+    sessionStorage.removeItem('fidgethub_auth_session');
     window.location.href = '/';
   };
 
