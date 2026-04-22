@@ -10,16 +10,21 @@ interface AdminDashboardProps {
 export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
+  const [newLocation, setNewLocation] = useState('');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
     price: '',
     image: '',
     location: '',
-    stock: ''
+    stock: '',
+    colors: '',
+    sizes: ''
   });
 
   useEffect(() => {
@@ -28,9 +33,32 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
 
     const storedProducts = localStorage.getItem('fidgethub_products');
     if (storedProducts) setProducts(JSON.parse(storedProducts));
+
+    const storedLocations = localStorage.getItem('fidgethub_locations');
+    if (storedLocations) {
+      setLocations(JSON.parse(storedLocations));
+    } else {
+      const defaultLocs = ['Warehouse-A', 'Distribution-Center', 'Retail-Base-01'];
+      setLocations(defaultLocs);
+      localStorage.setItem('fidgethub_locations', JSON.stringify(defaultLocs));
+    }
     
     setLoading(false);
   }, []);
+
+  const addLocation = () => {
+    if (!newLocation.trim()) return;
+    const updated = [...locations, newLocation.trim()];
+    setLocations(updated);
+    localStorage.setItem('fidgethub_locations', JSON.stringify(updated));
+    setNewLocation('');
+  };
+
+  const removeLocation = (loc: string) => {
+    const updated = locations.filter(l => l !== loc);
+    setLocations(updated);
+    localStorage.setItem('fidgethub_locations', JSON.stringify(updated));
+  };
 
   const updateStatus = (orderId: string, status: Order['status']) => {
     const updated = orders.map(o => o.id === orderId ? { ...o, status } : o);
@@ -72,14 +100,16 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
       description: newProduct.description,
       price: parseFloat(newProduct.price),
       image: newProduct.image || 'https://picsum.photos/seed/new/800/800',
-      location: newProduct.location,
-      stock: parseInt(newProduct.stock) || 0
+      location: newProduct.location || locations[0],
+      stock: parseInt(newProduct.stock) || 0,
+      colors: newProduct.colors ? newProduct.colors.split(',').map(c => c.trim()) : [],
+      sizes: newProduct.sizes ? newProduct.sizes.split(',').map(s => s.trim()) : []
     };
     const updated = [product, ...products];
     setProducts(updated);
     localStorage.setItem('fidgethub_products', JSON.stringify(updated));
     setShowAddProduct(false);
-    setNewProduct({ name: '', description: '', price: '', image: '', location: '', stock: '' });
+    setNewProduct({ name: '', description: '', price: '', image: '', location: '', stock: '', colors: '', sizes: '' });
     if (onProductsChange) onProductsChange();
   };
 
@@ -100,12 +130,20 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
             <ShieldCheck className="w-6 h-6 text-indigo-600" /> Command Center
           </h1>
         </div>
-        <button 
-          onClick={() => setShowAddProduct(true)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-4 h-4" /> Add Product
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-slate-50 transition-all"
+          >
+            Settings
+          </button>
+          <button 
+            onClick={() => setShowAddProduct(true)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            <Plus className="w-4 h-4" /> Add Product
+          </button>
+        </div>
       </div>
 
       {/* Metrics Bar */}
@@ -254,7 +292,25 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                   </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Base Location</label>
-                    <input required type="text" value={newProduct.location} onChange={e => setNewProduct({...newProduct, location: e.target.value})} className="hardware-input w-full" placeholder="Warehouse-A" />
+                    <select 
+                      required 
+                      value={newProduct.location} 
+                      onChange={e => setNewProduct({...newProduct, location: e.target.value})} 
+                      className="hardware-input w-full"
+                    >
+                      <option value="">Select Location</option>
+                      {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Available Colours (Comma separated)</label>
+                    <input type="text" value={newProduct.colors} onChange={e => setNewProduct({...newProduct, colors: e.target.value})} className="hardware-input w-full" placeholder="Black, White, Chrome" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Available Sizes (Comma separated)</label>
+                    <input type="text" value={newProduct.sizes} onChange={e => setNewProduct({...newProduct, sizes: e.target.value})} className="hardware-input w-full" placeholder="Small, Medium, Large" />
                   </div>
                 </div>
                 <div>
@@ -285,6 +341,56 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                   Register Object
                 </button>
               </form>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Global Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSettings(false)} className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100]" />
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="fixed inset-0 m-auto w-full max-w-lg h-fit bg-white rounded-2xl shadow-2xl z-[110] border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <h3 className="font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                   Global Settings
+                </h3>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-6">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Manage Possible Locations</label>
+                  <div className="flex gap-2 mb-4">
+                    <input 
+                      type="text" 
+                      value={newLocation} 
+                      onChange={e => setNewLocation(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addLocation()}
+                      className="hardware-input flex-1" 
+                      placeholder="e.g. London-Base" 
+                    />
+                    <button 
+                      onClick={addLocation}
+                      className="bg-slate-800 text-white px-4 rounded-lg text-[10px] font-black uppercase"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {locations.map(loc => (
+                      <div key={loc} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-tight">{loc}</span>
+                        <button onClick={() => removeLocation(loc)} className="text-red-400 hover:text-red-500">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </motion.div>
           </>
         )}

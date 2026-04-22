@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, Send, CheckCircle } from 'lucide-react';
+import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, Send, CheckCircle, Palette, Ruler } from 'lucide-react';
 import { CartItem, Order } from '../types';
 
 interface CartProps {
   isOpen: boolean;
   onClose: () => void;
   items: CartItem[];
-  onUpdateQuantity: (id: string, delta: number) => void;
-  onRemove: (id: string) => void;
+  onUpdateQuantity: (id: string, color: string | undefined, size: string | undefined, delta: number) => void;
+  onRemove: (id: string, color: string | undefined, size: string | undefined) => void;
   onClear: () => void;
 }
 
 export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onClear }: CartProps) => {
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'shipping' | 'success'>('cart');
   const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '', location: '' });
+  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    const stored = localStorage.getItem('fidgethub_locations');
+    if (stored) {
+      setAvailableLocations(JSON.parse(stored));
+    }
+  }, [isOpen]);
 
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -87,18 +95,30 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                   ) : (
                     <div className="space-y-4">
                       {items.map((item) => (
-                        <div key={item.id} className="flex gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl group transition-all hover:border-indigo-100">
+                        <div key={`${item.id}-${item.selectedColor}-${item.selectedSize}`} className="flex gap-4 p-3 bg-slate-50 border border-slate-100 rounded-xl group transition-all hover:border-indigo-100">
                           <img src={item.image} alt={item.name} className="w-12 h-12 object-cover rounded-lg border border-slate-200 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-xs text-slate-800 uppercase truncate mb-1">{item.name}</h4>
+                            <div className="flex flex-wrap gap-2 mb-1">
+                              {item.selectedColor && (
+                                <div className="text-[8px] font-black uppercase text-indigo-500 flex items-center gap-1">
+                                  <Palette className="w-2 h-2" /> {item.selectedColor}
+                                </div>
+                              )}
+                              {item.selectedSize && (
+                                <div className="text-[8px] font-black uppercase text-slate-800 flex items-center gap-1">
+                                  <Ruler className="w-2 h-2" /> {item.selectedSize}
+                                </div>
+                              )}
+                            </div>
                             <div className="text-indigo-600 font-bold text-xs tracking-tight">${item.price.toFixed(2)}</div>
                             <div className="flex items-center gap-3 mt-2">
-                              <button onClick={() => onUpdateQuantity(item.id, -1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Minus className="w-2.5 h-2.5 text-slate-400" /></button>
+                              <button onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, -1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Minus className="w-2.5 h-2.5 text-slate-400" /></button>
                               <span className="font-bold text-xs text-slate-600">{item.quantity}</span>
-                              <button onClick={() => onUpdateQuantity(item.id, 1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Plus className="w-2.5 h-2.5 text-slate-400" /></button>
+                              <button onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, 1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Plus className="w-2.5 h-2.5 text-slate-400" /></button>
                             </div>
                           </div>
-                          <button onClick={() => onRemove(item.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg h-fit transition-all">
+                          <button onClick={() => onRemove(item.id, item.selectedColor, item.selectedSize)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg h-fit transition-all">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -123,8 +143,16 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                       <input required type="text" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="John Doe" />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Location Preference</label>
-                      <input required type="text" value={customer.location || ''} onChange={e => setCustomer({...customer, location: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="Nearest Hub / City" />
+                      <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Delivery Destination Hub</label>
+                      <select 
+                        required 
+                        value={customer.location} 
+                        onChange={e => setCustomer({...customer, location: e.target.value})} 
+                        className="hardware-input w-full bg-slate-50"
+                      >
+                        <option value="">Select Nearest Hub</option>
+                        {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Email</label>

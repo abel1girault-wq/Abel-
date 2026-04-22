@@ -7,6 +7,8 @@ export interface Product {
   location: string;
   stock: number;
   specs?: string[];
+  colors?: string[];
+  sizes?: string[];
 }
 
 export interface Order {
@@ -28,4 +30,6 @@ export interface CartItem {
   price: number;
   quantity: number;
   image: string;
+  selectedColor?: string;
+  selectedSize?: string;
 }

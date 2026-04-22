@@ -1,14 +1,17 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ShoppingCart, ExternalLink, Info } from 'lucide-react';
+import { ShoppingCart, ExternalLink, Info, Palette, Ruler } from 'lucide-react';
 import { Product } from '../types';
 
 interface ProductCardProps {
   product: Product;
-  onAddToCart: (product: Product) => void;
+  onAddToCart: (product: Product, selectedColor?: string, selectedSize?: string) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
+  const [selectedColor, setSelectedColor] = React.useState<string>(product.colors && product.colors.length > 0 ? product.colors[0] : '');
+  const [selectedSize, setSelectedSize] = React.useState<string>(product.sizes && product.sizes.length > 0 ? product.sizes[0] : '');
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
@@ -55,9 +58,62 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }
           </div>
         )}
 
+        {/* Configuration Block (Color & Size) */}
+        {( (product.colors && product.colors.length > 0) || (product.sizes && product.sizes.length > 0) ) && (
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-4">
+            {/* Color Selector */}
+            {product.colors && product.colors.length > 0 && (
+              <div>
+                <label className="text-[8px] font-black uppercase text-slate-400 mb-1.5 flex items-center gap-1 tracking-[0.1em]">
+                  <Palette className="w-2.5 h-2.5" /> Core Finish
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {product.colors.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setSelectedColor(color)}
+                      className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-all border ${
+                        selectedColor === color 
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' 
+                          : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      {color}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Size Selector */}
+            {product.sizes && product.sizes.length > 0 && (
+              <div>
+                <label className="text-[8px] font-black uppercase text-slate-400 mb-1.5 flex items-center gap-1 tracking-[0.1em]">
+                  <Ruler className="w-2.5 h-2.5" /> Object Scale
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {product.sizes.map(size => (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-2 py-1 rounded text-[8px] font-bold uppercase transition-all border ${
+                        selectedSize === size 
+                          ? 'bg-slate-800 border-slate-800 text-white shadow-sm' 
+                          : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <button
-          onClick={() => onAddToCart(product)}
-          className="w-full mt-auto bg-slate-50 border border-slate-200 text-slate-700 font-bold py-2 rounded-lg text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all duration-200 active:scale-95"
+          onClick={() => onAddToCart(product, selectedColor, selectedSize)}
+          className="w-full mt-4 bg-slate-800 text-white font-black py-3 rounded-lg text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-slate-100 hover:bg-indigo-600 transition-all duration-200 active:scale-[0.98]"
         >
           Add to Cart
         </button>
