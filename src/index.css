@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-tactical-bg: #f8fafc;
+  --color-tactical-card: #ffffff;
+  --color-tactical-border: #e2e8f0;
+  --color-tactical-accent: #4f46e5; /* Indigo 600 */
+  --color-tactical-muted: #64748b;
+  --color-tactical-ink: #0f172a;
+}
+
+@layer base {
+  body {
+    @apply bg-tactical-bg text-tactical-ink font-sans antialiased;
+  }
+}
+
+.glass {
+  @apply bg-white border border-tactical-border shadow-sm;
+}
+
+.hardware-input {
+  @apply bg-white border border-tactical-border rounded px-3 py-2 text-sm font-sans focus:border-tactical-accent focus:ring-1 focus:ring-tactical-accent focus:outline-none transition-all text-slate-800;
+}
+
+.bristol-grid {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(226, 232, 240, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(226, 232, 240, 0.5) 1px, transparent 1px);
+}
