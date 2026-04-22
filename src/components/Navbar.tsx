@@ -112,7 +112,9 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
                 Establish Link
               </button>
               {error && (
-                <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-tighter">Auth Failure: Invalid Key</p>
+                <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-tighter">
+                  {ADMIN_PASSWORD ? 'Auth Failure: Invalid Key' : 'System Error: No Password Configured'}
+                </p>
               )}
             </form>
           </motion.div>
