@@ -12,12 +12,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }
   const [selectedColor, setSelectedColor] = React.useState<string>(product.colors && product.colors.length > 0 ? product.colors[0] : '');
   const [selectedSize, setSelectedSize] = React.useState<string>(product.sizes && product.sizes.length > 0 ? product.sizes[0] : '');
 
+  const currentPrice = React.useMemo(() => {
+    if (product.sizePrices && product.sizePrices.length > 0 && selectedSize) {
+      const sizePrice = product.sizePrices.find(sp => sp.size === selectedSize);
+      if (sizePrice) return sizePrice.price;
+    }
+    return product.price;
+  }, [product.price, product.sizePrices, selectedSize]);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
       whileInView={{ opacity: 1, scale: 1 }}
       viewport={{ once: true }}
-      className="group bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-all duration-300"
+      className="group bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-all duration-300 relative"
     >
       {/* Location Badge */}
       <div className="absolute top-3 left-3 z-10">
@@ -39,8 +47,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }
       {/* Content */}
       <div className="p-4 flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-1">
-          <h3 className="font-bold text-slate-800 tracking-tight leading-none truncate">{product.name}</h3>
-          <span className="text-indigo-600 font-bold text-sm tracking-tight">${product.price.toFixed(2)}</span>
+          <h3 className="font-bold text-slate-800 tracking-tight leading-none truncate pr-2">{product.name}</h3>
+          <span className="text-indigo-600 font-bold text-sm tracking-tight whitespace-nowrap">{currentPrice.toFixed(2)} SAR</span>
         </div>
         
         <p className="text-xs text-slate-500 line-clamp-2 mb-3 leading-relaxed">

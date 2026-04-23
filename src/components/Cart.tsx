@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, Send, CheckCircle, Palette, Ruler } from 'lucide-react';
 import { CartItem, Order } from '../types';
+import { db, handleFirestoreError } from '../lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 interface CartProps {
   isOpen: boolean;
@@ -14,44 +16,35 @@ interface CartProps {
 
 export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onClear }: CartProps) => {
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'shipping' | 'success'>('cart');
-  const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '', location: '' });
-  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
-
-  React.useEffect(() => {
-    const stored = localStorage.getItem('fidgethub_locations');
-    if (stored) {
-      setAvailableLocations(JSON.parse(stored));
-    }
-  }, [isOpen]);
+  const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '' });
 
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const handleCheckout = (e: React.FormEvent) => {
+  const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newOrder: Order = {
-      id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+    const newOrder = {
       customerName: customer.name,
       customerEmail: customer.email,
       customerPhone: customer.phone,
       shippingAddress: customer.address,
-      location: customer.location,
       items: [...items],
       total,
       status: 'pending',
-      createdAt: new Date().toISOString()
+      createdAt: serverTimestamp()
     };
 
-    // Save to local storage for demo/admin view
-    const existing = JSON.parse(localStorage.getItem('fidgethub_orders') || '[]');
-    localStorage.setItem('fidgethub_orders', JSON.stringify([newOrder, ...existing]));
-
-    setCheckoutStep('success');
-    setTimeout(() => {
-      onClear();
-      onClose();
-      setCheckoutStep('cart');
-      setCustomer({ name: '', email: '', phone: '', address: '', location: '' });
-    }, 3000);
+    try {
+      await addDoc(collection(db, 'orders'), newOrder);
+      setCheckoutStep('success');
+      setTimeout(() => {
+        onClear();
+        onClose();
+        setCheckoutStep('cart');
+        setCustomer({ name: '', email: '', phone: '', address: '' });
+      }, 3000);
+    } catch (error) {
+      handleFirestoreError(error, 'create', 'orders');
+    }
   };
 
   return (
@@ -111,7 +104,7 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                                 </div>
                               )}
                             </div>
-                            <div className="text-indigo-600 font-bold text-xs tracking-tight">${item.price.toFixed(2)}</div>
+                            <div className="text-indigo-600 font-bold text-xs tracking-tight">{item.price.toFixed(2)} SAR</div>
                             <div className="flex items-center gap-3 mt-2">
                               <button onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, -1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Minus className="w-2.5 h-2.5 text-slate-400" /></button>
                               <span className="font-bold text-xs text-slate-600">{item.quantity}</span>
@@ -141,18 +134,6 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Full Name</label>
                       <input required type="text" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="John Doe" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Delivery Destination Hub</label>
-                      <select 
-                        required 
-                        value={customer.location} 
-                        onChange={e => setCustomer({...customer, location: e.target.value})} 
-                        className="hardware-input w-full bg-slate-50"
-                      >
-                        <option value="">Select Nearest Hub</option>
-                        {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-                      </select>
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Email</label>
@@ -192,7 +173,7 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
               <div className="p-6 border-t border-slate-100 bg-slate-50/50">
                 <div className="flex justify-between items-center mb-4">
                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Total Order Value</span>
-                  <span className="text-xl font-black text-indigo-600 tracking-tight">${total.toFixed(2)}</span>
+                  <span className="text-xl font-black text-indigo-600 tracking-tight">{total.toFixed(2)} SAR</span>
                 </div>
                 <button
                   onClick={() => setCheckoutStep('shipping')}

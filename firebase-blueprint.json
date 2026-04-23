@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A 3D printed fidget product available in the store.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name of the product"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description"
+        },
+        "price": {
+          "type": "number",
+          "description": "Price in SAR"
+        },
+        "sizePrices": {
+          "type": "array"
+        },
+        "image": {
+          "type": "string",
+          "description": "URL to the product image"
+        },
+        "location": {
+          "type": "string",
+          "description": "Physical storage sector"
+        },
+        "stock": {
+          "type": "number",
+          "description": "Available units"
+        },
+        "specs": {
+          "type": "array"
+        },
+        "colors": {
+          "type": "array"
+        },
+        "sizes": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "price",
+        "image",
+        "location",
+        "stock"
+      ]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A customer order.",
+      "type": "object",
+      "properties": {
+        "customerName": {
+          "type": "string"
+        },
+        "customerEmail": {
+          "type": "string",
+          "format": "email"
+        },
+        "customerPhone": {
+          "type": "string"
+        },
+        "shippingAddress": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array"
+        },
+        "total": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "processing",
+            "shipped",
+            "delivered"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "location": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "customerName",
+        "customerEmail",
+        "items",
+        "total",
+        "status",
+        "createdAt"
+      ]
+    },
+    "CartItem": {
+      "title": "Cart Item",
+      "description": "An item in a cart or order.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "image": {
+          "type": "string"
+        },
+        "selectedColor": {
+          "type": "string"
+        },
+        "selectedSize": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "price",
+        "quantity"
+      ]
+    }
+  },
+  "firestore": {
+    "products": {
+      "schema": "Product",
+      "description": "Collection of all products."
+    },
+    "orders": {
+      "schema": "Order",
+      "description": "Collection of all customer orders."
+    }
+  }
+}

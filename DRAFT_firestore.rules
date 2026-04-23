@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definition
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      // Designated admin email check
+      return isEmailVerified() && request.auth.token.email == 'abel1.girault@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Pillar 2: Validation Blueprints
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'description', 'price', 'image', 'location', 'stock'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.description is string && data.description.size() <= 2000
+        && data.price is number && data.price >= 0
+        && data.image is string && data.image.matches('^https?://.*')
+        && data.location is string && data.location.size() <= 100
+        && data.stock is number && data.stock >= 0;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['customerName', 'customerEmail', 'items', 'total', 'status', 'createdAt'])
+        && data.customerName is string && data.customerName.size() <= 100
+        && data.customerEmail is string && data.customerEmail.size() <= 200
+        && data.items is list && data.items.size() > 0
+        && data.total is number && data.total >= 0
+        && data.status in ['pending', 'processing', 'shipped', 'delivered']
+        && data.createdAt == request.time;
+    }
+
+    // Collections
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
+      allow update: if isAdmin() && isValidProduct(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasAny(['name', 'description', 'price', 'image', 'location', 'stock', 'specs', 'colors', 'sizes'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      // Secure List Queries: allow list if resource.data.customerEmail == request.auth.token.email;
+      // But for now, we only allow admin to read all orders.
+      allow read: if isAdmin();
+      allow create: if isValidId(orderId) && isValidOrder(incoming());
+      allow update: if isAdmin() && (
+        // Action: Update Status
+        incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+      );
+      allow delete: if isAdmin();
+    }
+  }
+}

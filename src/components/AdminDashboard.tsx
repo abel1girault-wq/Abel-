@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut } from 'lucide-react';
 import { Order, Product } from '../types';
+import { db, auth, googleProvider, handleFirestoreError } from '../lib/firebase';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { signInWithPopup } from 'firebase/auth';
 
-interface AdminDashboardProps {
-  onProductsChange?: () => void;
-}
-
-export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
+export const AdminDashboard = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
@@ -16,10 +15,12 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [user, setUser] = useState(auth.currentUser);
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
     price: '',
+    sizePrices: '',
     image: '',
     location: '',
     stock: '',
@@ -28,12 +29,21 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
   });
 
   useEffect(() => {
-    const storedOrders = localStorage.getItem('fidgethub_orders');
-    if (storedOrders) setOrders(JSON.parse(storedOrders));
+    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
+      setUser(u);
+    });
 
-    const storedProducts = localStorage.getItem('fidgethub_products');
-    if (storedProducts) setProducts(JSON.parse(storedProducts));
+    // Real-time products sync
+    const unsubscribeProds = onSnapshot(query(collection(db, 'products')), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[]);
+    });
 
+    // Real-time orders sync
+    const unsubscribeOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Order[]);
+    });
+
+    // Local settings sync - keeping locations in localStorage for simplicity or could move to firestore
     const storedLocations = localStorage.getItem('fidgethub_locations');
     if (storedLocations) {
       setLocations(JSON.parse(storedLocations));
@@ -44,7 +54,20 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
     }
     
     setLoading(false);
+    return () => {
+      unsubscribeAuth();
+      unsubscribeProds();
+      unsubscribeOrders();
+    };
   }, []);
+
+  const handleAdminAuth = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Auth error:", error);
+    }
+  };
 
   const addLocation = () => {
     if (!newLocation.trim()) return;
@@ -60,25 +83,30 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
     localStorage.setItem('fidgethub_locations', JSON.stringify(updated));
   };
 
-  const updateStatus = (orderId: string, status: Order['status']) => {
-    const updated = orders.map(o => o.id === orderId ? { ...o, status } : o);
-    setOrders(updated);
-    localStorage.setItem('fidgethub_orders', JSON.stringify(updated));
+  const updateStatus = async (orderId: string, status: Order['status']) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), { status });
+    } catch (error) {
+      handleFirestoreError(error, 'update', `orders/${orderId}`);
+    }
   };
 
-  const deleteOrder = (orderId: string) => {
+  const deleteOrder = async (orderId: string) => {
     if (!window.confirm('Delete this record?')) return;
-    const updated = orders.filter(o => o.id !== orderId);
-    setOrders(updated);
-    localStorage.setItem('fidgethub_orders', JSON.stringify(updated));
+    try {
+      await deleteDoc(doc(db, 'orders', orderId));
+    } catch (error) {
+      handleFirestoreError(error, 'delete', `orders/${orderId}`);
+    }
   };
 
-  const deleteProduct = (productId: string) => {
+  const deleteProduct = async (productId: string) => {
     if (!window.confirm('Delete this product?')) return;
-    const updated = products.filter(p => p.id !== productId);
-    setProducts(updated);
-    localStorage.setItem('fidgethub_products', JSON.stringify(updated));
-    if (onProductsChange) onProductsChange();
+    try {
+      await deleteDoc(doc(db, 'products', productId));
+    } catch (error) {
+      handleFirestoreError(error, 'delete', `products/${productId}`);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -92,25 +120,37 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
     }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    const product: Product = {
-      id: Math.random().toString(36).substr(2, 9),
+    
+    // Parse size prices
+    const sizePrices = newProduct.sizePrices ? newProduct.sizePrices.split(',').map(pair => {
+      const parts = pair.split(':');
+      if (parts.length === 2) {
+        return { size: parts[0].trim(), price: parseFloat(parts[1].trim()) };
+      }
+      return null;
+    }).filter((sp): sp is { size: string, price: number } => sp !== null && !isNaN(sp.price)) : [];
+
+    const productData = {
       name: newProduct.name,
       description: newProduct.description,
       price: parseFloat(newProduct.price),
+      sizePrices,
       image: newProduct.image || 'https://picsum.photos/seed/new/800/800',
       location: newProduct.location || locations[0],
       stock: parseInt(newProduct.stock) || 0,
       colors: newProduct.colors ? newProduct.colors.split(',').map(c => c.trim()) : [],
       sizes: newProduct.sizes ? newProduct.sizes.split(',').map(s => s.trim()) : []
     };
-    const updated = [product, ...products];
-    setProducts(updated);
-    localStorage.setItem('fidgethub_products', JSON.stringify(updated));
-    setShowAddProduct(false);
-    setNewProduct({ name: '', description: '', price: '', image: '', location: '', stock: '', colors: '', sizes: '' });
-    if (onProductsChange) onProductsChange();
+
+    try {
+      await addDoc(collection(db, 'products'), productData);
+      setShowAddProduct(false);
+      setNewProduct({ name: '', description: '', price: '', sizePrices: '', image: '', location: '', stock: '', colors: '', sizes: '' });
+    } catch (error) {
+      handleFirestoreError(error, 'create', 'products');
+    }
   };
 
   const filteredOrders = orders.filter(o => 
@@ -136,6 +176,19 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
           </h1>
         </div>
         <div className="flex items-center gap-3">
+          {!user ? (
+            <button 
+              onClick={handleAdminAuth}
+              className="bg-amber-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
+            >
+              Verify Secure Identity (Google)
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[9px] font-black uppercase text-emerald-600">ID Verified: {user.email}</span>
+            </div>
+          )}
           <button 
             onClick={() => setShowSettings(true)}
             className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-slate-50 transition-all"
@@ -173,7 +226,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
         </div>
         <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
           <p className="text-[10px] text-slate-500 uppercase font-black tracking-wider">Total Revenue</p>
-          <p className="text-2xl font-black text-emerald-600 leading-none mt-1">${totalRevenue.toFixed(0)}</p>
+          <p className="text-2xl font-black text-emerald-600 leading-none mt-1">{totalRevenue.toFixed(0)} SAR</p>
         </div>
       </div>
 
@@ -191,7 +244,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
               <tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-200">
                 <th className="px-6 py-3">Object Name</th>
                 <th className="px-6 py-3">Location</th>
-                <th className="px-6 py-3 text-right">Value</th>
+                <th className="px-6 py-3 text-right">Value (SAR)</th>
                 <th className="px-6 py-3 text-right">Stock</th>
                 <th className="px-6 py-3 text-right">Control</th>
               </tr>
@@ -201,7 +254,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                 <tr key={product.id} className="hover:bg-slate-50/50">
                   <td className="px-6 py-3 font-bold text-slate-800">{product.name}</td>
                   <td className="px-6 py-3 text-slate-500 font-bold uppercase">{product.location}</td>
-                  <td className="px-6 py-3 text-right font-black text-slate-800">${product.price.toFixed(2)}</td>
+                  <td className="px-6 py-3 text-right font-black text-slate-800">{product.price.toFixed(2)} SAR</td>
                   <td className="px-6 py-3 text-right font-black text-indigo-600">{product.stock} units</td>
                   <td className="px-6 py-3 text-right">
                     <button onClick={() => deleteProduct(product.id)} className="text-red-400 hover:text-red-600 p-1">
@@ -240,7 +293,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                 <th className="px-6 py-3">Record ID</th>
                 <th className="px-6 py-3">Customer Info</th>
                 <th className="px-6 py-3">Shipment Point</th>
-                <th className="px-6 py-3 text-right">Value</th>
+                <th className="px-6 py-3 text-right">Value (SAR)</th>
                 <th className="px-6 py-3 text-center">Protocol</th>
                 <th className="px-6 py-3 text-right">Action</th>
               </tr>
@@ -257,7 +310,7 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                       <MapPin className="w-3 h-3 text-indigo-400" /> {order.location}
                     </div>
                   </td>
-                  <td className="px-6 py-3 text-right font-black text-slate-800">${order.total.toFixed(2)}</td>
+                  <td className="px-6 py-3 text-right font-black text-slate-800">{order.total.toFixed(2)} SAR</td>
                   <td className="px-6 py-3 text-center">
                     <select 
                       value={order.status}
@@ -330,22 +383,18 @@ export const AdminDashboard = ({ onProductsChange }: AdminDashboardProps) => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Value (USD)</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Base Value (SAR)</label>
                     <input required type="number" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="hardware-input w-full" placeholder="0.00" />
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Initial Stock</label>
-                    <input required type="number" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} className="hardware-input w-full" placeholder="0" />
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Size Specific Prices (Size:Price, ...)</label>
+                    <input type="text" value={newProduct.sizePrices} onChange={e => setNewProduct({...newProduct, sizePrices: e.target.value})} className="hardware-input w-full" placeholder="Small:100, Large:200" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Visual Link (IMG URL)</label>
-                    <input type="text" value={newProduct.image} onChange={e => setNewProduct({...newProduct, image: e.target.value})} className="hardware-input w-full" placeholder="https://..." />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Or Upload Local Image</label>
-                    <input type="file" accept="image/*" onChange={handleFileChange} className="hardware-input w-full text-[10px]" />
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Initial Stock</label>
+                    <input required type="number" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} className="hardware-input w-full" placeholder="0" />
                   </div>
                 </div>
                 <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">

@@ -13,6 +13,8 @@ import { MOCK_PRODUCTS } from './constants';
 import { Product, CartItem } from './types';
 import { motion } from 'motion/react';
 import { Radar, ShoppingCart, Package, Shield } from 'lucide-react';
+import { db, testFirestoreConnection } from './lib/firebase';
+import { collection, onSnapshot, query, addDoc, getDocs } from 'firebase/firestore';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -26,25 +28,47 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
+    testFirestoreConnection();
+    
     // Security: Clear legacy persistent auth logs if any
     localStorage.removeItem('fidgethub_auth');
     
-    const stored = localStorage.getItem('fidgethub_products');
-    if (stored) {
-      setProducts(JSON.parse(stored));
-    } else {
-      setProducts(MOCK_PRODUCTS);
-      localStorage.setItem('fidgethub_products', JSON.stringify(MOCK_PRODUCTS));
-    }
+    // Real-time products sync
+    const q = query(collection(db, 'products'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const prods = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Product[];
+      
+      setProducts(prods);
+
+      // Seed mock data if empty (for first run)
+      if (prods.length === 0) {
+        MOCK_PRODUCTS.forEach(async (p) => {
+          const { id, ...rest } = p; // Remove ID to let Firestore generate
+          await addDoc(collection(db, 'products'), rest);
+        });
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const addToCart = (product: Product, selectedColor?: string, selectedSize?: string) => {
+    // Determine size-specific price
+    let itemPrice = product.price;
+    if (selectedSize && product.sizePrices) {
+      const sp = product.sizePrices.find(p => p.size === selectedSize);
+      if (sp) itemPrice = sp.price;
+    }
+
     setCartItems(prev => {
       const existing = prev.find(item => item.id === product.id && item.selectedColor === selectedColor && item.selectedSize === selectedSize);
       if (existing) {
         return prev.map(item => (item.id === product.id && item.selectedColor === selectedColor && item.selectedSize === selectedSize) ? { ...item, quantity: item.quantity + 1 } : item);
       }
-      return [...prev, { id: product.id, name: product.name, price: product.price, image: product.image, quantity: 1, selectedColor, selectedSize }];
+      return [...prev, { id: product.id, name: product.name, price: itemPrice, image: product.image, quantity: 1, selectedColor, selectedSize }];
     });
     setIsCartOpen(true);
   };
@@ -140,10 +164,7 @@ export default function App() {
 
           <Route path="/admin" element={
             <ProtectedRoute>
-              <AdminDashboard onProductsChange={() => {
-                const stored = localStorage.getItem('fidgethub_products');
-                if (stored) setProducts(JSON.parse(stored));
-              }} />
+              <AdminDashboard />
             </ProtectedRoute>
           } />
           

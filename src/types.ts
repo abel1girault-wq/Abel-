@@ -1,8 +1,14 @@
+export interface SizePrice {
+  size: string;
+  price: number;
+}
+
 export interface Product {
   id: string;
   name: string;
   description: string;
-  price: number;
+  price: number; // Base price
+  sizePrices?: SizePrice[];
   image: string;
   location: string;
   stock: number;
