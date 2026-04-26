@@ -1,22 +1,35 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, Send, CheckCircle, Palette, Ruler } from 'lucide-react';
-import { CartItem, Order } from '../types';
+import { CartItem, Order, Product } from '../types';
 import { db, handleFirestoreError } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 
 interface CartProps {
   isOpen: boolean;
   onClose: () => void;
   items: CartItem[];
+  products: Product[];
   onUpdateQuantity: (id: string, color: string | undefined, size: string | undefined, delta: number) => void;
   onRemove: (id: string, color: string | undefined, size: string | undefined) => void;
   onClear: () => void;
 }
 
-export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onClear }: CartProps) => {
+export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRemove, onClear }: CartProps) => {
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'shipping' | 'success'>('cart');
-  const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '' });
+  const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '', location: '' });
+  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    
+    const unsubscribe = onSnapshot(collection(db, 'locations'), (snapshot) => {
+      const locs = snapshot.docs.map(doc => doc.data().name) as string[];
+      setAvailableLocations(locs);
+    });
+
+    return () => unsubscribe();
+  }, [isOpen]);
 
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -26,7 +39,7 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
       customerName: customer.name,
       customerEmail: customer.email,
       customerPhone: customer.phone,
-      shippingAddress: customer.address,
+      location: customer.location,
       items: [...items],
       total,
       status: 'pending',
@@ -40,7 +53,7 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
         onClear();
         onClose();
         setCheckoutStep('cart');
-        setCustomer({ name: '', email: '', phone: '', address: '' });
+        setCustomer({ name: '', email: '', phone: '', address: '', location: '' });
       }, 3000);
     } catch (error) {
       handleFirestoreError(error, 'create', 'orders');
@@ -108,7 +121,13 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                             <div className="flex items-center gap-3 mt-2">
                               <button onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, -1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Minus className="w-2.5 h-2.5 text-slate-400" /></button>
                               <span className="font-bold text-xs text-slate-600">{item.quantity}</span>
-                              <button onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, 1)} className="p-1 border border-slate-200 hover:bg-white rounded"><Plus className="w-2.5 h-2.5 text-slate-400" /></button>
+                              <button 
+                                onClick={() => onUpdateQuantity(item.id, item.selectedColor, item.selectedSize, 1)} 
+                                disabled={item.quantity >= (products.find(p => p.id === item.id)?.stock || 0)}
+                                className="p-1 border border-slate-200 hover:bg-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <Plus className="w-2.5 h-2.5 text-slate-400" />
+                              </button>
                             </div>
                           </div>
                           <button onClick={() => onRemove(item.id, item.selectedColor, item.selectedSize)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg h-fit transition-all">
@@ -136,16 +155,30 @@ export const Cart = ({ isOpen, onClose, items, onUpdateQuantity, onRemove, onCle
                       <input required type="text" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="John Doe" />
                     </div>
                     <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Collection Location (Hub)</label>
+                      {availableLocations.length === 0 ? (
+                        <div className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded-lg border border-amber-100 font-bold uppercase tracking-tighter">
+                          System Offline: No hubs available in current sector.
+                        </div>
+                      ) : (
+                        <select 
+                          required 
+                          value={customer.location} 
+                          onChange={e => setCustomer({...customer, location: e.target.value})} 
+                          className="hardware-input w-full bg-slate-50"
+                        >
+                          <option value="">Select Destination Hub</option>
+                          {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Email</label>
                       <input required type="email" value={customer.email} onChange={e => setCustomer({...customer, email: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="john@example.com" />
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Phone</label>
                       <input required type="tel" value={customer.phone} onChange={e => setCustomer({...customer, phone: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="+1 (555) 000-0000" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Shipping Address</label>
-                      <textarea required value={customer.address} onChange={e => setCustomer({...customer, address: e.target.value})} className="hardware-input w-full h-24 resize-none bg-slate-50" placeholder="123 Fidget St, City..." />
                     </div>
                   </div>
                   

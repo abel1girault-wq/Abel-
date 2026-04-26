@@ -22,7 +22,7 @@ export interface Order {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  shippingAddress: string;
+  shippingAddress?: string;
   items: CartItem[];
   total: number;
   status: 'pending' | 'processing' | 'shipped' | 'delivered';

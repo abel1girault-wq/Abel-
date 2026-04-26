@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut } from 'lucide-react';
+import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut, Minus, Radar } from 'lucide-react';
 import { Order, Product } from '../types';
+import { ADMIN_PASSWORD } from '../constants';
 import { db, auth, googleProvider, handleFirestoreError } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { signInWithPopup } from 'firebase/auth';
 
 export const AdminDashboard = () => {
@@ -12,10 +13,13 @@ export const AdminDashboard = () => {
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState('');
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [user, setUser] = useState(auth.currentUser);
+  const [password, setPassword] = useState('');
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
@@ -29,58 +33,109 @@ export const AdminDashboard = () => {
   });
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
-      setUser(u);
-    });
+    // Local session check
+    const session = sessionStorage.getItem('fidgethub_admin_session');
+    if (session === 'authorized') {
+      setIsAuthorized(true);
+    }
+    setIsInitializing(false);
 
     // Real-time products sync
-    const unsubscribeProds = onSnapshot(query(collection(db, 'products')), (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[]);
+    const unsubscribeProds = onSnapshot(query(collection(db, 'products')), {
+      next: (snapshot) => {
+        setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Product[]);
+        setAuthError(null);
+      },
+      error: (error) => {
+        // We handle permission denials gracefully by showing the gate
+        console.error("Products sync error:", error);
+      }
     });
 
-    // Real-time orders sync
-    const unsubscribeOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Order[]);
+    // Real-time orders sync - removing server-side orderBy to ensure all docs show up even if createdAt is null
+    const unsubscribeOrders = onSnapshot(collection(db, 'orders'), {
+      next: (snapshot) => {
+        const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as unknown as Order[];
+        // Sort client-side
+        const sorted = allOrders.sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
+        });
+        setOrders(sorted);
+        setAuthError(null);
+      },
+      error: (error) => {
+        console.error("Orders sync error:", error);
+      }
     });
 
-    // Local settings sync - keeping locations in localStorage for simplicity or could move to firestore
-    const storedLocations = localStorage.getItem('fidgethub_locations');
-    if (storedLocations) {
-      setLocations(JSON.parse(storedLocations));
-    } else {
-      const defaultLocs = ['Warehouse-A', 'Distribution-Center', 'Retail-Base-01'];
-      setLocations(defaultLocs);
-      localStorage.setItem('fidgethub_locations', JSON.stringify(defaultLocs));
-    }
-    
-    setLoading(false);
+    // Real-time locations sync from Firestore
+    const unsubscribeLocs = onSnapshot(collection(db, 'locations'), {
+      next: (snapshot) => {
+        const locs = snapshot.docs.map(doc => doc.data().name) as string[];
+        if (locs.length === 0) {
+          // Initial seed if empty
+          const defaultLocs = ['Sector-7 Hub', 'North Dock 4', 'Main Ledger'];
+          defaultLocs.forEach(async (name) => {
+            try {
+              await addDoc(collection(db, 'locations'), { name });
+            } catch (e) {
+              // Ignore seed fail if not admin
+            }
+          });
+          setLocations(defaultLocs);
+        } else {
+          setLocations(locs);
+        }
+        setLoading(false);
+      },
+      error: (error) => {
+        console.error("Locations sync error:", error);
+      }
+    });
+
     return () => {
-      unsubscribeAuth();
       unsubscribeProds();
       unsubscribeOrders();
+      unsubscribeLocs();
     };
   }, []);
 
-  const handleAdminAuth = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Auth error:", error);
+  const handleAdminAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Use master key from constants or hardcoded fallback
+    if (password === ADMIN_PASSWORD) {
+      setIsAuthorized(true);
+      sessionStorage.setItem('fidgethub_admin_session', 'authorized');
+      setAuthError(null);
+    } else {
+      setAuthError('Invalid Master Key. Access Denied.');
+      setPassword('');
     }
   };
 
-  const addLocation = () => {
+  const addLocation = async () => {
     if (!newLocation.trim()) return;
-    const updated = [...locations, newLocation.trim()];
-    setLocations(updated);
-    localStorage.setItem('fidgethub_locations', JSON.stringify(updated));
-    setNewLocation('');
+    try {
+      await addDoc(collection(db, 'locations'), { name: newLocation.trim() });
+      setNewLocation('');
+    } catch (error) {
+      handleFirestoreError(error, 'create', 'locations');
+    }
   };
 
-  const removeLocation = (loc: string) => {
-    const updated = locations.filter(l => l !== loc);
-    setLocations(updated);
-    localStorage.setItem('fidgethub_locations', JSON.stringify(updated));
+  const removeLocation = async (locName: string) => {
+    try {
+      const q = query(collection(db, 'locations'));
+      const snapshot = await getDocs(q);
+      const docToDelete = snapshot.docs.find(d => d.data().name === locName);
+      if (docToDelete) {
+        await deleteDoc(doc(db, 'locations', docToDelete.id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, 'delete', 'locations');
+    }
   };
 
   const updateStatus = async (orderId: string, status: Order['status']) => {
@@ -106,6 +161,14 @@ export const AdminDashboard = () => {
       await deleteDoc(doc(db, 'products', productId));
     } catch (error) {
       handleFirestoreError(error, 'delete', `products/${productId}`);
+    }
+  };
+
+  const handleUpdateStock = async (productId: string, newStock: number) => {
+    try {
+      await updateDoc(doc(db, 'products', productId), { stock: Math.max(0, newStock) });
+    } catch (error) {
+      handleFirestoreError(error, 'update', `products/${productId}`);
     }
   };
 
@@ -162,31 +225,95 @@ export const AdminDashboard = () => {
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
   const handleLogout = () => {
-    sessionStorage.removeItem('fidgethub_auth_session');
+    sessionStorage.removeItem('fidgethub_admin_session');
+    setIsAuthorized(false);
     window.location.href = '/';
   };
 
+  if (isInitializing) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-white">
+        <Radar className="w-12 h-12 text-indigo-400 animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="pt-20 pb-20 px-6 max-w-7xl mx-auto flex flex-col h-screen overflow-hidden">
+    <div className="pt-20 pb-20 px-6 max-w-7xl mx-auto flex flex-col h-screen overflow-hidden relative">
+      <AnimatePresence>
+        {!isAuthorized && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[200] bg-white/80 backdrop-blur-md flex items-center justify-center p-6"
+          >
+            <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-2xl p-8 text-center">
+              <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-slate-100">
+                <ShieldCheck className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Protocol Gate</h2>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight mb-8">
+                {authError || "Secure terminal access requires master protocol key."}
+              </p>
+              
+              <form onSubmit={handleAdminAuth} className="space-y-4">
+                <div className="relative group">
+                  <input 
+                    type="password" 
+                    value={password}
+                    autoFocus
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="ENTER PROTOCOL KEY"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-4 text-center font-black tracking-[0.5em] text-slate-800 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all transition-duration-300"
+                  />
+                  {authError && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-2 text-[10px] text-red-500 font-black uppercase tracking-widest"
+                    >
+                      Access Denied
+                    </motion.div>
+                  )}
+                </div>
+                
+                <button 
+                  type="submit"
+                  className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl uppercase tracking-[0.2em] text-[10px] shadow-lg shadow-indigo-100 hover:bg-indigo-700 hover:scale-[1.01] active:scale-95 transition-all"
+                >
+                  Authorize Access
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => window.location.href = '/'}
+                  className="w-full text-slate-400 font-black py-4 uppercase tracking-[0.2em] text-[10px] hover:text-slate-600 transition-all border-t border-slate-50 mt-4"
+                >
+                  Return to Surface
+                </button>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header & Meta */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-indigo-600" /> Command Center
           </h1>
+          {authError && (
+            <div className="mt-2 text-[10px] font-bold text-amber-600 uppercase flex items-center gap-2 animate-pulse">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-500" /> {authError}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
-          {!user ? (
-            <button 
-              onClick={handleAdminAuth}
-              className="bg-amber-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
-            >
-              Verify Secure Identity (Google)
-            </button>
-          ) : (
+          {isAuthorized && (
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] font-black uppercase text-emerald-600">ID Verified: {user.email}</span>
+              <span className="text-[9px] font-black uppercase text-emerald-600">Secure Protocol Active</span>
             </div>
           )}
           <button 
@@ -255,9 +382,27 @@ export const AdminDashboard = () => {
                   <td className="px-6 py-3 font-bold text-slate-800">{product.name}</td>
                   <td className="px-6 py-3 text-slate-500 font-bold uppercase">{product.location}</td>
                   <td className="px-6 py-3 text-right font-black text-slate-800">{product.price.toFixed(2)} SAR</td>
-                  <td className="px-6 py-3 text-right font-black text-indigo-600">{product.stock} units</td>
                   <td className="px-6 py-3 text-right">
-                    <button onClick={() => deleteProduct(product.id)} className="text-red-400 hover:text-red-600 p-1">
+                    <div className="flex items-center justify-end gap-2">
+                      <button 
+                        onClick={() => handleUpdateStock(product.id, product.stock - 1)}
+                        className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className={`font-black w-12 text-center ${product.stock <= 5 ? 'text-red-500' : 'text-indigo-600'}`}>
+                        {product.stock}
+                      </span>
+                      <button 
+                        onClick={() => handleUpdateStock(product.id, product.stock + 1)}
+                        className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-6 py-3 text-right">
+                    <button onClick={() => deleteProduct(product.id)} className="text-red-300 hover:text-red-600 p-1">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>

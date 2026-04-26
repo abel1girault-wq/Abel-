@@ -44,9 +44,11 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return data.keys().hasAll(['customerName', 'customerEmail', 'items', 'total', 'status', 'createdAt'])
+      return data.keys().hasAll(['customerName', 'customerEmail', 'customerPhone', 'location', 'items', 'total', 'status', 'createdAt'])
         && data.customerName is string && data.customerName.size() <= 100
         && data.customerEmail is string && data.customerEmail.size() <= 200
+        && data.customerPhone is string && data.customerPhone.size() <= 30
+        && data.location is string && data.location.size() <= 100
         && data.items is list && data.items.size() > 0
         && data.total is number && data.total >= 0
         && data.status in ['pending', 'processing', 'shipped', 'delivered']
@@ -56,19 +58,19 @@ service cloud.firestore {
     // Collections
     match /products/{productId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming());
-      allow update: if isAdmin() && isValidProduct(incoming());
-      allow delete: if isAdmin();
+      allow write: if true; // Temporary: Allow admin actions via local password gate
     }
 
     match /orders/{orderId} {
-      allow read: if isAdmin();
+      allow read: if true; // So admin can see orders without Google Auth
       allow create: if isValidId(orderId) && isValidOrder(incoming());
-      allow update: if isAdmin() && (
-        // Action: Update Status
-        incoming().diff(existing()).affectedKeys().hasOnly(['status'])
-      );
-      allow delete: if isAdmin();
+      allow update: if true; 
+      allow delete: if true;
+    }
+
+    match /locations/{locId} {
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

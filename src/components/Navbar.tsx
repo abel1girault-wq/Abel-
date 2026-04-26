@@ -22,7 +22,7 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
       return;
     }
     if (password === ADMIN_PASSWORD) {
-      sessionStorage.setItem('fidgethub_auth_session', 'active');
+      sessionStorage.setItem('fidgethub_admin_session', 'authorized');
       setShowAdminLogin(false);
       setPassword('');
       setError(false);

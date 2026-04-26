@@ -27,11 +27,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }
       viewport={{ once: true }}
       className="group bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-all duration-300 relative"
     >
-      {/* Location Badge */}
-      <div className="absolute top-3 left-3 z-10">
+      {/* Location & Stock Badges */}
+      <div className="absolute top-3 left-3 z-10 flex flex-col gap-2">
         <span className="px-2 py-1 bg-white/90 backdrop-blur-sm border border-slate-100 rounded-md text-[10px] font-bold uppercase tracking-wider text-slate-500 shadow-sm">
           {product.location}
         </span>
+        {product.stock <= 0 && (
+          <span className="px-2 py-1 bg-red-500 text-white rounded-md text-[10px] font-bold uppercase tracking-wider shadow-md animate-pulse">
+            Out of Stock
+          </span>
+        )}
       </div>
 
       {/* Image Container */}
@@ -121,9 +126,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }
 
         <button
           onClick={() => onAddToCart(product, selectedColor, selectedSize)}
-          className="w-full mt-4 bg-slate-800 text-white font-black py-3 rounded-lg text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-slate-100 hover:bg-indigo-600 transition-all duration-200 active:scale-[0.98]"
+          disabled={product.stock <= 0}
+          className={`w-full mt-4 font-black py-3 rounded-lg text-[9px] uppercase tracking-[0.2em] shadow-lg transition-all duration-200 active:scale-[0.98] ${
+            product.stock <= 0 
+              ? 'bg-slate-100 text-slate-300 cursor-not-allowed shadow-none' 
+              : 'bg-slate-800 text-white shadow-slate-100 hover:bg-indigo-600'
+          }`}
         >
-          Add to Cart
+          {product.stock <= 0 ? 'Unavailable' : 'Add to Cart'}
         </button>
       </div>
     </motion.div>

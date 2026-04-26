@@ -18,14 +18,23 @@ import { collection, onSnapshot, query, addDoc, getDocs } from 'firebase/firesto
 
 // Protected Route Component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const isAuth = sessionStorage.getItem('fidgethub_auth_session') === 'active';
-  return isAuth ? <>{children}</> : <Navigate to="/" replace />;
+  const isAuth = sessionStorage.getItem('fidgethub_admin_session') === 'authorized';
+  return isAuth ? <>{children}</> : <Navigate to="/admin" replace />;
 };
 
 export default function App() {
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
+    const saved = localStorage.getItem('fidgethub_cart');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('fidgethub_cart', JSON.stringify(cartItems));
+  }, [cartItems]);
 
   useEffect(() => {
     testFirestoreConnection();
@@ -35,27 +44,48 @@ export default function App() {
     
     // Real-time products sync
     const q = query(collection(db, 'products'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const prods = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Product[];
-      
-      setProducts(prods);
+    const unsubscribe = onSnapshot(q, {
+      next: (snapshot) => {
+        const prods = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Product[];
+        
+        setProducts(prods);
+        setLoading(false);
 
-      // Seed mock data if empty (for first run)
-      if (prods.length === 0) {
-        MOCK_PRODUCTS.forEach(async (p) => {
-          const { id, ...rest } = p; // Remove ID to let Firestore generate
-          await addDoc(collection(db, 'products'), rest);
-        });
+        // Seed mock data ONLY if truly empty and we haven't checked/failed before
+        const hasSeeded = localStorage.getItem('fidgethub_initial_seed_done');
+        if (prods.length === 0 && !snapshot.metadata.fromCache && !isSeeding && !hasSeeded) {
+          setIsSeeding(true);
+          const seed = async () => {
+            for (const p of MOCK_PRODUCTS) {
+              const { id, ...rest } = p;
+              await addDoc(collection(db, 'products'), rest);
+            }
+            localStorage.setItem('fidgethub_initial_seed_done', 'true');
+          };
+          seed().finally(() => setIsSeeding(false));
+        }
+      },
+      error: (error) => {
+        console.error("Products sync error:", error);
+        setLoading(false);
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isSeeding]);
 
   const addToCart = (product: Product, selectedColor?: string, selectedSize?: string) => {
+    // Stock limit check
+    const currentInCart = cartItems.find(item => item.id === product.id && item.selectedColor === selectedColor && item.selectedSize === selectedSize)?.quantity || 0;
+    
+    if (currentInCart >= product.stock) {
+      alert(`Cannot add more. Only ${product.stock} units available in stock.`);
+      return;
+    }
+
     // Determine size-specific price
     let itemPrice = product.price;
     if (selectedSize && product.sizePrices) {
@@ -76,6 +106,13 @@ export default function App() {
   const updateCartQuantity = (id: string, color: string | undefined, size: string | undefined, delta: number) => {
     setCartItems(prev => prev.map(item => {
       if (item.id === id && item.selectedColor === color && item.selectedSize === size) {
+        if (delta > 0) {
+          const product = products.find(p => p.id === id);
+          if (product && item.quantity >= product.stock) {
+            alert(`Maximum stock reached (${product.stock} units).`);
+            return item;
+          }
+        }
         const newQty = Math.max(1, item.quantity + delta);
         return { ...item, quantity: newQty };
       }
@@ -149,24 +186,28 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {products.map(product => (
-                    <ProductCard 
-                      key={product.id} 
-                      product={product} 
-                      onAddToCart={addToCart} 
-                    />
-                  ))}
+                  {loading ? (
+                    Array(4).fill(0).map((_, i) => (
+                      <div key={i} className="aspect-square bg-slate-50 animate-pulse rounded-2xl border border-slate-100 flex items-center justify-center">
+                        <Radar className="w-8 h-8 text-slate-200 animate-spin-slow" />
+                      </div>
+                    ))
+                  ) : (
+                    products.map(product => (
+                      <ProductCard 
+                        key={product.id} 
+                        product={product} 
+                        onAddToCart={addToCart} 
+                      />
+                    ))
+                  )}
                 </div>
               </section>
 
             </main>
           } />
 
-          <Route path="/admin" element={
-            <ProtectedRoute>
-              <AdminDashboard />
-            </ProtectedRoute>
-          } />
+          <Route path="/admin" element={<AdminDashboard />} />
           
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
@@ -175,6 +216,7 @@ export default function App() {
           isOpen={isCartOpen}
           onClose={() => setIsCartOpen(false)}
           items={cartItems}
+          products={products}
           onUpdateQuantity={updateCartQuantity}
           onRemove={removeFromCart}
           onClear={() => setCartItems([])}
