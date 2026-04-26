@@ -74,20 +74,7 @@ export const AdminDashboard = () => {
     const unsubscribeLocs = onSnapshot(collection(db, 'locations'), {
       next: (snapshot) => {
         const locs = snapshot.docs.map(doc => doc.data().name) as string[];
-        if (locs.length === 0) {
-          // Initial seed if empty
-          const defaultLocs = ['Sector-7 Hub', 'North Dock 4', 'Main Ledger'];
-          defaultLocs.forEach(async (name) => {
-            try {
-              await addDoc(collection(db, 'locations'), { name });
-            } catch (e) {
-              // Ignore seed fail if not admin
-            }
-          });
-          setLocations(defaultLocs);
-        } else {
-          setLocations(locs);
-        }
+        setLocations(locs);
         setLoading(false);
       },
       error: (error) => {
@@ -101,6 +88,36 @@ export const AdminDashboard = () => {
       unsubscribeLocs();
     };
   }, []);
+
+  const handleRestoreDefaults = async () => {
+    if (!window.confirm('Restore default factory inventory and locations? This will add initial data to the system.')) return;
+    setLoading(true);
+    try {
+      // Seed Locations
+      const defaultLocs = ['Sector-7 Hub', 'North Dock 4', 'Main Ledger'];
+      for (const name of defaultLocs) {
+        if (!locations.includes(name)) {
+          await addDoc(collection(db, 'locations'), { name });
+        }
+      }
+
+      // Seed Products from MOCK_PRODUCTS if they don't exist by name
+      const { MOCK_PRODUCTS } = await import('../constants');
+      for (const p of MOCK_PRODUCTS) {
+        const exists = products.some(item => item.name === p.name);
+        if (!exists) {
+          const { id, ...rest } = p;
+          await addDoc(collection(db, 'products'), rest);
+        }
+      }
+      alert('System defaults restored successfully.');
+    } catch (error) {
+      console.error("Restore error:", error);
+      alert('Factory restore intervention failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -594,6 +611,18 @@ export const AdminDashboard = () => {
                       </div>
                     ))}
                   </div>
+                </div>
+                <div className="pt-6 border-t border-slate-100">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">System Maintenance</label>
+                  <button 
+                    onClick={handleRestoreDefaults}
+                    className="w-full py-3 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black uppercase text-indigo-600 hover:bg-white hover:border-indigo-200 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Radar className="w-4 h-4" /> Restore Factory Defaults
+                  </button>
+                  <p className="mt-2 text-[9px] text-slate-400 font-medium italic">
+                    Note: This will reload missing default products and locations without duplicates.
+                  </p>
                 </div>
               </div>
             </motion.div>

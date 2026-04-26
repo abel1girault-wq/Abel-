@@ -9,7 +9,6 @@ import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { Cart } from './components/Cart';
-import { MOCK_PRODUCTS } from './constants';
 import { Product, CartItem } from './types';
 import { motion } from 'motion/react';
 import { Radar, ShoppingCart, Package, Shield } from 'lucide-react';
@@ -30,7 +29,6 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('fidgethub_cart', JSON.stringify(cartItems));
@@ -53,20 +51,6 @@ export default function App() {
         
         setProducts(prods);
         setLoading(false);
-
-        // Seed mock data ONLY if truly empty and we haven't checked/failed before
-        const hasSeeded = localStorage.getItem('fidgethub_initial_seed_done');
-        if (prods.length === 0 && !snapshot.metadata.fromCache && !isSeeding && !hasSeeded) {
-          setIsSeeding(true);
-          const seed = async () => {
-            for (const p of MOCK_PRODUCTS) {
-              const { id, ...rest } = p;
-              await addDoc(collection(db, 'products'), rest);
-            }
-            localStorage.setItem('fidgethub_initial_seed_done', 'true');
-          };
-          seed().finally(() => setIsSeeding(false));
-        }
       },
       error: (error) => {
         console.error("Products sync error:", error);
@@ -75,7 +59,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isSeeding]);
+  }, []);
 
   const addToCart = (product: Product, selectedColor?: string, selectedSize?: string) => {
     // Stock limit check
