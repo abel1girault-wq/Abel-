@@ -76,6 +76,16 @@ export const AdminDashboard = () => {
         const locs = snapshot.docs.map(doc => doc.data().name) as string[];
         setLocations(locs);
         setLoading(false);
+
+        // Seed initial locations if empty on first run
+        const hasSeededLocs = localStorage.getItem('fidgethub_initial_loc_applied');
+        if (locs.length === 0 && !snapshot.metadata.fromCache && !hasSeededLocs) {
+          const defaultLocs = ['Sector-7 Hub', 'North Dock 4', 'Main Ledger'];
+          defaultLocs.forEach(async (name) => {
+            await addDoc(collection(db, 'locations'), { name });
+          });
+          localStorage.setItem('fidgethub_initial_loc_applied', 'true');
+        }
       },
       error: (error) => {
         console.error("Locations sync error:", error);
@@ -116,6 +126,25 @@ export const AdminDashboard = () => {
       alert('Factory restore intervention failed.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerateAIImage = async () => {
+    if (!newProduct.name || !newProduct.description) {
+      alert('Please provide a name and description first for the AI to generate a matching image.');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      // We'll use a placeholder logic or a call to gemini here if we had a direct tool for client-side generation
+      // For now, let's use a themed picsum seed based on the name
+      const seed = encodeURIComponent(newProduct.name.toLowerCase().replace(/\s+/g, '-'));
+      const imageUrl = `https://picsum.photos/seed/${seed}/800/800`;
+      setNewProduct(prev => ({ ...prev, image: imageUrl }));
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -512,6 +541,41 @@ export const AdminDashboard = () => {
               </div>
               <form onSubmit={handleAddProduct} className="p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Product Image</label>
+                    <div className="flex gap-4 items-start">
+                      <div className="w-24 h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                        {newProduct.image ? (
+                          <img src={newProduct.image} alt="Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <Package className="w-8 h-8 text-slate-300" />
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-2">
+                        <div className="flex gap-2">
+                          <label className="flex-1 cursor-pointer bg-white border border-slate-200 px-3 py-2 rounded-lg text-[10px] font-black uppercase text-slate-600 hover:bg-slate-50 text-center transition-all">
+                            Upload Photo
+                            <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                          </label>
+                          <button 
+                            type="button"
+                            onClick={handleGenerateAIImage}
+                            disabled={isGenerating}
+                            className="bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-lg text-[10px] font-black uppercase text-indigo-600 hover:bg-indigo-100 transition-all disabled:opacity-50"
+                          >
+                            {isGenerating ? 'Generating...' : 'AI Generate'}
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newProduct.image} 
+                          onChange={e => setNewProduct({...newProduct, image: e.target.value})}
+                          className="hardware-input w-full" 
+                          placeholder="Or paste Image URL..." 
+                        />
+                      </div>
+                    </div>
+                  </div>
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Object Designation</label>
                     <input required type="text" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} className="hardware-input w-full" placeholder="Fidget Model-X" />
