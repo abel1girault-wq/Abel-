@@ -4,7 +4,7 @@ import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut, Minus, R
 import { Order, Product } from '../types';
 import { ADMIN_PASSWORD } from '../constants';
 import { db, auth, googleProvider, handleFirestoreError } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, addDoc, setDoc, getDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { signInWithPopup } from 'firebase/auth';
 
 export const AdminDashboard = () => {
@@ -184,11 +184,13 @@ export const AdminDashboard = () => {
     }
   };
 
-  const updateStatus = async (orderId: string, status: Order['status']) => {
+  const updateStatus = async (order: Order, status: Order['status']) => {
     try {
+      const orderId = order.id;
+      
       await updateDoc(doc(db, 'orders', orderId), { status });
     } catch (error) {
-      handleFirestoreError(error, 'update', `orders/${orderId}`);
+      handleFirestoreError(error, 'update', `orders/${order.id}`);
     }
   };
 
@@ -285,7 +287,7 @@ export const AdminDashboard = () => {
   }
 
   return (
-    <div className="pt-20 pb-20 px-6 max-w-7xl mx-auto flex flex-col h-screen overflow-hidden relative">
+    <div className="pt-20 pb-20 px-6 max-w-7xl mx-auto flex flex-col min-h-screen relative overflow-y-auto">
       <AnimatePresence>
         {!isAuthorized && (
           <motion.div 
@@ -404,7 +406,7 @@ export const AdminDashboard = () => {
       </div>
 
       {/* Product Management Section */}
-      <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden min-h-[400px] shrink-0">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center shrink-0">
           <h2 className="font-bold text-slate-700">Inventory Ledger</h2>
           <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
@@ -460,7 +462,7 @@ export const AdminDashboard = () => {
       </div>
 
       {/* Order Ledger Container */}
-      <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden min-h-[400px] shrink-0">
         <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
           <h2 className="font-bold text-slate-700">Global Ledger</h2>
           <div className="flex items-center gap-2 w-full md:w-auto">
@@ -483,6 +485,7 @@ export const AdminDashboard = () => {
               <tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b border-slate-200">
                 <th className="px-6 py-3">Record ID</th>
                 <th className="px-6 py-3">Customer Info</th>
+                <th className="px-6 py-3">Logistics (Items)</th>
                 <th className="px-6 py-3">Shipment Point</th>
                 <th className="px-6 py-3 text-right">Value (SAR)</th>
                 <th className="px-6 py-3 text-center">Protocol</th>
@@ -495,6 +498,31 @@ export const AdminDashboard = () => {
                   <td className="px-6 py-3 font-mono font-bold text-indigo-600">#{order.id.slice(0, 8)}</td>
                   <td className="px-6 py-3">
                     <div className="font-bold text-slate-800">{order.customerName}</div>
+                    <div className="text-[9px] text-slate-400 font-mono mt-0.5">{order.customerEmail}</div>
+                    <div className="text-[9px] text-slate-400 font-mono">{order.customerPhone}</div>
+                  </td>
+                  <td className="px-6 py-3">
+                    <div className="space-y-2">
+                      {order.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-3 border-l-2 border-indigo-100 pl-2">
+                          <div className="w-8 h-8 rounded bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-slate-700">{item.quantity}x</span>
+                              <span className="font-bold text-slate-600 truncate max-w-[120px]">{item.name}</span>
+                            </div>
+                            {(item.selectedColor || item.selectedSize) && (
+                              <div className="flex gap-2 text-[8px] font-black uppercase text-indigo-400">
+                                {item.selectedColor && <span>CLR: {item.selectedColor}</span>}
+                                {item.selectedSize && <span>SZ: {item.selectedSize}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-1 text-slate-500 font-bold uppercase">
@@ -505,12 +533,13 @@ export const AdminDashboard = () => {
                   <td className="px-6 py-3 text-center">
                     <select 
                       value={order.status}
-                      onChange={(e) => updateStatus(order.id, e.target.value as Order['status'])}
+                      onChange={(e) => updateStatus(order, e.target.value as Order['status'])}
                       className="px-2 py-1 rounded bg-slate-100 text-[9px] font-black uppercase border-none focus:ring-1 focus:ring-indigo-500"
                     >
                       <option value="pending">PENDING</option>
                       <option value="shipped">SHIPPED</option>
                       <option value="delivered">DELIVERED</option>
+                      <option value="completed">COMPLETED</option>
                     </select>
                   </td>
                   <td className="px-6 py-3 text-right">

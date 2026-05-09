@@ -25,7 +25,7 @@ export interface Order {
   shippingAddress?: string;
   items: CartItem[];
   total: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered';
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'completed';
   createdAt: string;
   location: string;
 }

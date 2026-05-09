@@ -4,6 +4,7 @@ import { Shield, ShoppingCart, Menu, X, Terminal } from 'lucide-react';
 import { ADMIN_PASSWORD } from '../constants';
 import { motion, AnimatePresence } from 'motion/react';
 
+
 interface NavbarProps {
   cartCount: number;
   onOpenCart: () => void;
@@ -120,6 +121,7 @@ export const Navbar = ({ cartCount, onOpenCart }: NavbarProps) => {
           </motion.div>
         )}
       </AnimatePresence>
+
     </nav>
   );
 };

@@ -12,7 +12,7 @@ import { Cart } from './components/Cart';
 import { Product, CartItem } from './types';
 import { MOCK_PRODUCTS } from './constants';
 import { motion } from 'motion/react';
-import { Radar, ShoppingCart, Package, Shield } from 'lucide-react';
+import { Radar, ShoppingCart, Package } from 'lucide-react';
 import { db, testFirestoreConnection } from './lib/firebase';
 import { collection, onSnapshot, query, addDoc, getDocs } from 'firebase/firestore';
 

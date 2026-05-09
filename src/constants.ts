@@ -2,6 +2,7 @@ import { Product } from './types';
 
 export const ADMIN_PASSWORD = "Apollo@123";
 
+// Product Information Constants
 export const MOCK_PRODUCTS: Product[] = [
   {
     id: 'f-1',

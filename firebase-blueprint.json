@@ -81,7 +81,8 @@
             "pending",
             "processing",
             "shipped",
-            "delivered"
+            "delivered",
+            "completed"
           ]
         },
         "createdAt": {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, Send, CheckCircle, Palette, Ruler } from 'lucide-react';
+import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, CheckCircle, Palette, Ruler, Send, Zap, Shield } from 'lucide-react';
 import { CartItem, Order, Product } from '../types';
 import { db, handleFirestoreError } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
@@ -18,10 +18,40 @@ interface CartProps {
 export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRemove, onClear }: CartProps) => {
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'shipping' | 'success'>('cart');
   const [customer, setCustomer] = useState({ name: '', email: '', phone: '', address: '', location: '' });
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
 
+  const validateEmail = (email: string) => {
+    // Stricter email regex and check for minimal length/realistic parts
+    if (email.length < 5 || !email.includes('.')) return false;
+    return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,10}$/.test(email);
+  };
+
+  const validatePhone = (phone: string) => {
+    // Saudi Mobile: +966 5x xxx xxxx or 05x xxx xxxx
+    const clean = phone.replace(/\s+/g, '').replace(/-/g, '');
+    
+    // Check if it's a Saudi format
+    const isSaudi = /^(\+9665|05|5)\d{8}$/.test(clean);
+    
+    if (isSaudi) return true;
+
+    // International format fallback: +[Country][Number]
+    if (clean.startsWith('+')) {
+      return /^\+[1-9]\d{9,14}$/.test(clean);
+    }
+
+    // Generic fallback for local numbers elsewhere
+    return /^\d{10,14}$/.test(clean);
+  };
+
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setValidationError(null);
+      setIsSubmitting(false);
+      return;
+    }
     
     const unsubscribe = onSnapshot(collection(db, 'locations'), (snapshot) => {
       const locs = snapshot.docs.map(doc => doc.data().name) as string[];
@@ -35,28 +65,51 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setValidationError(null);
+
+    // Basic cleaning
+    const cleanEmail = customer.email.toLowerCase().trim();
+    const cleanPhone = customer.phone.trim();
+
+    if (!validateEmail(cleanEmail)) {
+      setValidationError("INVALID COMMUNICATION PROTOCOL: EMAIL DOES NOT EXIST");
+      return;
+    }
+
+    if (!validatePhone(cleanPhone)) {
+      setValidationError("INVALID SIGNAL: PHONE NUMBER FORMAT NOT RECOGNIZED (USE 10+ DIGITS)");
+      return;
+    }
+
+    setIsSubmitting(true);
+
     const newOrder = {
       customerName: customer.name,
-      customerEmail: customer.email,
-      customerPhone: customer.phone,
+      customerEmail: cleanEmail,
+      customerPhone: cleanPhone.replace(/\s+/g, ''),
       location: customer.location,
       items: [...items],
       total,
       status: 'pending',
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
     };
 
     try {
       await addDoc(collection(db, 'orders'), newOrder);
+      
       setCheckoutStep('success');
       setTimeout(() => {
         onClear();
         onClose();
+        setIsSubmitting(false);
         setCheckoutStep('cart');
         setCustomer({ name: '', email: '', phone: '', address: '', location: '' });
-      }, 3000);
+      }, 1500);
     } catch (error) {
-      handleFirestoreError(error, 'create', 'orders');
+      setIsSubmitting(false);
+      handleFirestoreError(error, 'write' as any, 'orders');
     }
   };
 
@@ -87,7 +140,7 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className={`flex-1 overflow-y-auto p-6 ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}`}>
               {checkoutStep === 'cart' && (
                 <>
                   {items.length === 0 ? (
@@ -142,11 +195,13 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
 
               {checkoutStep === 'shipping' && (
                 <form onSubmit={handleCheckout} className="space-y-5">
-                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mb-6">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mb-6">
                     <h3 className="text-[10px] font-black uppercase text-indigo-600 tracking-[0.2em] flex items-center gap-2 mb-1">
-                      <Send className="w-3 h-3" /> Delivery Details
+                      <Send className="w-3 h-3" /> Contact & Delivery
                     </h3>
-                    <p className="text-[11px] text-indigo-400 leading-tight">Please provide your details below.</p>
+                    <p className="text-[10px] text-slate-500 leading-tight">
+                      Communication signals (Email & Phone) must be authentic. <span className="text-rose-500 font-bold">Orders with fake contact information will be automatically cancelled.</span>
+                    </p>
                   </div>
 
                   <div className="space-y-4">
@@ -178,14 +233,33 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-500 mb-1.5 block">Phone</label>
-                      <input required type="tel" value={customer.phone} onChange={e => setCustomer({...customer, phone: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="+1 (555) 000-0000" />
+                      <input required type="tel" value={customer.phone} onChange={e => setCustomer({...customer, phone: e.target.value})} className="hardware-input w-full bg-slate-50" placeholder="+966 50 000 0000" />
                     </div>
                   </div>
+
+                  {validationError && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-rose-50 border border-rose-100 p-3 rounded-lg"
+                    >
+                      <p className="text-[9px] font-black text-rose-700 uppercase tracking-wider text-center">{validationError}</p>
+                      <p className="text-[7px] text-rose-500 uppercase tracking-tighter text-center mt-1 font-bold">Detected data mismatch. Please provide valid contact details to proceed.</p>
+                    </motion.div>
+                  )}
                   
                   <div className="pt-4 flex gap-2">
-                    <button type="button" onClick={() => setCheckoutStep('cart')} className="px-4 py-3 border border-slate-200 text-slate-400 font-bold rounded-xl uppercase text-[10px] hover:bg-slate-50">Back</button>
-                    <button type="submit" className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all">
-                      Confirm Final Order <Send className="w-3.5 h-3.5" />
+                    <button type="button" onClick={() => { setCheckoutStep('cart'); setValidationError(null); }} className="px-4 py-3 border border-slate-200 text-slate-400 font-bold rounded-xl uppercase text-[10px] hover:bg-slate-50">Back</button>
+                    <button 
+                      type="submit" 
+                      disabled={isSubmitting}
+                      className={`flex-1 ${isSubmitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-all`}
+                    >
+                      {isSubmitting ? (
+                        <>TRANSMITTING SIGNAL... <Zap className="w-3.5 h-3.5 animate-pulse" /></>
+                      ) : (
+                        <>Confirm Final Order <Send className="w-3.5 h-3.5" /></>
+                      )}
                     </button>
                   </div>
                 </form>
