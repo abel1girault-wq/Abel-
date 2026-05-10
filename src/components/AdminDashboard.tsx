@@ -284,6 +284,11 @@ export const AdminDashboard = () => {
 
     setIsSyncing(true);
     try {
+      // Environment check
+      if (window.location.hostname.includes('netlify.app')) {
+        throw new Error("This environment (Netlify) is static and does not support the required Node.js backend. Please use the AI Studio development preview to sync data.");
+      }
+
       const response = await fetch("/api/sync-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -292,11 +297,16 @@ export const AdminDashboard = () => {
 
       let data;
       const contentType = response.headers.get("content-type");
+      
+      if (response.status === 404) {
+        throw new Error("Cloud Endpoint Not Found (404). This usually means the backend server is not running or you are on a static host like Netlify.");
+      }
+
       if (contentType && contentType.includes("application/json")) {
         data = await response.json();
       } else {
         const text = await response.text();
-        throw new Error(`Server returned non-JSON response (${response.status}): ${text.slice(0, 500)}`);
+        throw new Error(`Cloud Protocol Error: Server returned non-JSON response (${response.status}). Check if the backend is active.`);
       }
 
       if (response.ok && data.status === "ok") {
