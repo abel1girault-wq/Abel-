@@ -12,6 +12,11 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Health check for Render
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "alive" });
+  });
+
   // API route for syncing with Google Sheets
   app.post("/api/sync-order", async (req, res) => {
     console.log("[SERVER] Incoming sync request...");
