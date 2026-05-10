@@ -97,7 +97,24 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
     };
 
     try {
-      await addDoc(collection(db, 'orders'), newOrder);
+      const docRef = await addDoc(collection(db, 'orders'), newOrder);
+      
+      // Sync to Google Sheets via backend
+      try {
+        fetch('/api/sync-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            order: { 
+              ...newOrder, 
+              id: docRef.id,
+              createdAt: { seconds: Math.floor(Date.now() / 1000) } // Formatting for the server
+            } 
+          })
+        });
+      } catch (syncError) {
+        console.error("Sheet sync failed:", syncError);
+      }
       
       setCheckoutStep('success');
       setTimeout(() => {
