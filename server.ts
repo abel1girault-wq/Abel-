@@ -11,74 +11,111 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// API route for syncing with Google Sheets
+    // API route for syncing with Google Sheets
 app.post("/api/sync-order", async (req, res) => {
+  console.log("Incoming sync request...");
   try {
     const { order, orders } = req.body;
     const ordersToSync = orders || (order ? [order] : []);
 
     if (ordersToSync.length === 0) {
+      console.warn("Sync failed: No orders provided");
       return res.status(400).json({ error: "No orders provided" });
     }
     
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.GOOGLE_SHEET_ID) {
+    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const key = process.env.GOOGLE_PRIVATE_KEY;
+    let rawSheetId = process.env.GOOGLE_SHEET_ID;
+
+    if (!email || !key || !rawSheetId) {
       console.warn("Google Sheets credentials missing in environment");
       return res.status(200).json({ status: "skipped", message: "Credentials not configured" });
     }
 
+    let sheetId = rawSheetId;
+    // Extract sheet ID if a full URL was provided
+    if (sheetId.includes("spreadsheets/d/")) {
+      const match = sheetId.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) {
+        sheetId = match[1];
+        console.log("Extracted sheet ID from URL:", sheetId.slice(0, 5) + "...");
+      }
+    } else if (sheetId.includes("/")) {
+      sheetId = sheetId.split("/")[0];
+    }
+
+    console.log("Initializing Google Sheets API...");
     const auth = new google.auth.JWT({
-      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      email,
+      key: key.replace(/\\n/g, "\n"),
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
     const sheets = google.sheets({ version: "v4", auth });
     
-    // Get the spreadsheet to find the first sheet's name (useful for localized names like "Feuille 1")
+    // Get the spreadsheet to find the first sheet's name
     let sheetName = "Sheet1";
     try {
+      console.log("Fetching spreadsheet metadata...");
       const spreadsheet = await sheets.spreadsheets.get({
-        spreadsheetId: process.env.GOOGLE_SHEET_ID,
+        spreadsheetId: sheetId,
       });
-      if (spreadsheet.data.sheets && spreadsheet.data.sheets[0].properties) {
+      if (spreadsheet.data.sheets && spreadsheet.data.sheets.length > 0 && spreadsheet.data.sheets[0].properties) {
         sheetName = spreadsheet.data.sheets[0].properties.title || "Sheet1";
       }
+      console.log("Found active sheet tab:", sheetName);
     } catch (getErr) {
-      console.warn("Could not fetch spreadsheet metadata, defaulting to Sheet1", getErr);
+      console.warn("Could not fetch spreadsheet metadata. Check if the spreadsheet ID is correct and shared with the service account.", (getErr as any).message);
+      // We continue with default "Sheet1" and let the next call fail with a descriptive error if the ID is totally wrong
     }
 
     const values = ordersToSync.map((o: any) => {
+      let dateStr = "N/A";
+      try {
+        const timestamp = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : o.createdAt;
+        if (timestamp) {
+          dateStr = new Date(timestamp).toLocaleString();
+        } else {
+          dateStr = new Date().toLocaleString();
+        }
+      } catch (e) {
+        dateStr = "Date Parse Error";
+      }
+
       const itemsString = (o.items || [])
         .map((item: any) => `${item.name} x${item.quantity}${item.selectedSize ? ` (${item.selectedSize})` : ""}`)
         .join(", ");
 
       return [
-        new Date(o.createdAt?.seconds * 1000 || o.createdAt || Date.now()).toLocaleString(),
-        o.id,
-        o.customerName,
-        o.customerEmail,
-        o.customerPhone,
-        itemsString,
-        o.total,
-        o.status,
+        dateStr,
+        o.id || "N/A",
+        o.customerName || "N/A",
+        o.customerEmail || "N/A",
+        o.customerPhone || "N/A",
+        itemsString || "No items",
+        o.total || 0,
+        o.status || "pending",
         o.location || "N/A"
       ];
     });
 
+    console.log(`Appending ${values.length} rows to '${sheetName}'...`);
     await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: `${sheetName}!A:I`,
+      spreadsheetId: sheetId,
+      range: `'${sheetName}'!A:I`,
       valueInputOption: "RAW",
       requestBody: { values },
     });
 
-    console.log(`${ordersToSync.length} orders synced to Google Sheets (${sheetName})`);
-    res.json({ status: "ok" });
-  } catch (error) {
-    console.error("Error syncing to Google Sheets:", error);
+    console.log("Sync successful.");
+    res.status(200).json({ status: "ok" });
+  } catch (error: any) {
+    console.error("Critical Sync Error:", error.message || error);
+    // Ensure we ALWAYS return JSON
     res.status(500).json({ 
       error: "Failed to sync to Google Sheets", 
-      details: error instanceof Error ? error.message : String(error) 
+      details: error.message || String(error),
+      code: error.code || "UNKNOWN_ERROR"
     });
   }
 });

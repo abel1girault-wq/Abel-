@@ -290,14 +290,23 @@ export const AdminDashboard = () => {
         body: JSON.stringify({ orders }),
       });
 
-      const data = await response.json();
+      let data;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Server returned non-JSON response (${response.status}): ${text.slice(0, 500)}`);
+      }
 
       if (response.ok && data.status === "ok") {
         alert("Protocol Sync Successful: Data transmitted to Google Sheets.");
       } else if (data.status === "skipped") {
         alert("Sync Warning: Infrastructure credentials not configured in the environment.");
-      } else {
+      } else if (data.status === "error" || data.error) {
         throw new Error(data.details || data.error || "Unknown synchronization error");
+      } else {
+        throw new Error(`Unexpected server response: ${JSON.stringify(data)}`);
       }
     } catch (error) {
       console.error("Sync error:", error);
