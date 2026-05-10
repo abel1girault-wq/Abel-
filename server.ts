@@ -14,7 +14,12 @@ app.use(express.json());
 // API route for syncing with Google Sheets
 app.post("/api/sync-order", async (req, res) => {
   try {
-    const { order } = req.body;
+    const { order, orders } = req.body;
+    const ordersToSync = orders || (order ? [order] : []);
+
+    if (ordersToSync.length === 0) {
+      return res.status(400).json({ error: "No orders provided" });
+    }
     
     if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.GOOGLE_SHEET_ID) {
       console.warn("Google Sheets credentials missing in environment");
@@ -29,37 +34,52 @@ app.post("/api/sync-order", async (req, res) => {
 
     const sheets = google.sheets({ version: "v4", auth });
     
-    // Format items string
-    const itemsString = order.items
-      .map((item: any) => `${item.name} x${item.quantity}${item.selectedSize ? ` (${item.selectedSize})` : ""}`)
-      .join(", ");
+    // Get the spreadsheet to find the first sheet's name (useful for localized names like "Feuille 1")
+    let sheetName = "Sheet1";
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      });
+      if (spreadsheet.data.sheets && spreadsheet.data.sheets[0].properties) {
+        sheetName = spreadsheet.data.sheets[0].properties.title || "Sheet1";
+      }
+    } catch (getErr) {
+      console.warn("Could not fetch spreadsheet metadata, defaulting to Sheet1", getErr);
+    }
 
-    const values = [
-      [
-        new Date(order.createdAt?.seconds * 1000 || Date.now()).toLocaleString(),
-        order.id,
-        order.customerName,
-        order.customerEmail,
-        order.customerPhone,
+    const values = ordersToSync.map((o: any) => {
+      const itemsString = (o.items || [])
+        .map((item: any) => `${item.name} x${item.quantity}${item.selectedSize ? ` (${item.selectedSize})` : ""}`)
+        .join(", ");
+
+      return [
+        new Date(o.createdAt?.seconds * 1000 || o.createdAt || Date.now()).toLocaleString(),
+        o.id,
+        o.customerName,
+        o.customerEmail,
+        o.customerPhone,
         itemsString,
-        order.total,
-        order.status,
-        order.location || "N/A"
-      ]
-    ];
+        o.total,
+        o.status,
+        o.location || "N/A"
+      ];
+    });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Sheet1!A:I",
+      range: `${sheetName}!A:I`,
       valueInputOption: "RAW",
       requestBody: { values },
     });
 
-    console.log(`Order ${order.id} synced to Google Sheets`);
+    console.log(`${ordersToSync.length} orders synced to Google Sheets (${sheetName})`);
     res.json({ status: "ok" });
   } catch (error) {
     console.error("Error syncing to Google Sheets:", error);
-    res.status(500).json({ error: "Failed to sync to Google Sheets" });
+    res.status(500).json({ 
+      error: "Failed to sync to Google Sheets", 
+      details: error instanceof Error ? error.message : String(error) 
+    });
   }
 });
 

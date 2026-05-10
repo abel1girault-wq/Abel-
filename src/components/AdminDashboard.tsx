@@ -272,6 +272,41 @@ export const AdminDashboard = () => {
   const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncToSheets = async () => {
+    if (orders.length === 0) {
+      alert("No records found in the ledger to sync.");
+      return;
+    }
+
+    if (!window.confirm(`Attempting to push ${orders.length} records to the cloud ledger (Google Sheets). Continue?`)) return;
+
+    setIsSyncing(true);
+    try {
+      const response = await fetch("/api/sync-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orders }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === "ok") {
+        alert("Protocol Sync Successful: Data transmitted to Google Sheets.");
+      } else if (data.status === "skipped") {
+        alert("Sync Warning: Infrastructure credentials not configured in the environment.");
+      } else {
+        throw new Error(data.details || data.error || "Unknown synchronization error");
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      alert(`Sync Failure: ${error instanceof Error ? error.message : "Data transmission failed."}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleLogout = () => {
     sessionStorage.removeItem('fidgethub_admin_session');
     setIsAuthorized(false);
@@ -465,7 +500,15 @@ export const AdminDashboard = () => {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden min-h-[400px] shrink-0">
         <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
           <h2 className="font-bold text-slate-700">Global Ledger</h2>
-          <div className="flex items-center gap-2 w-full md:w-auto">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <button 
+              onClick={handleSyncToSheets}
+              disabled={isSyncing}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50 border-2 border-emerald-500/20"
+            >
+              <Radar className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> 
+              {isSyncing ? 'Synchronizing...' : 'Sync to Google Sheets'}
+            </button>
             <div className="relative flex-1 md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
