@@ -187,8 +187,16 @@ export const AdminDashboard = () => {
   const updateStatus = async (order: Order, status: Order['status']) => {
     try {
       const orderId = order.id;
-      
       await updateDoc(doc(db, 'orders', orderId), { status });
+      
+      // Automatic sync on status update
+      console.log(`[ADMIN] Triggering auto-sync for order ${orderId}...`);
+      fetch("/api/sync-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: { ...order, status } }),
+      }).catch(err => console.error("Auto-sync failed:", err));
+      
     } catch (error) {
       handleFirestoreError(error, 'update', `orders/${order.id}`);
     }
@@ -273,14 +281,28 @@ export const AdminDashboard = () => {
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
 
-  const handleSyncToSheets = async () => {
+  // Automatic Sync Timer
+  useEffect(() => {
+    if (!autoSyncEnabled || !isAuthorized || orders.length === 0) return;
+
+    console.log("[ADMIN] Auto-sync timer initialized (15s interval)");
+    const interval = setInterval(() => {
+      console.log("[ADMIN] Triggering scheduled auto-sync...");
+      handleSyncToSheets(true); // Call with silent=true
+    }, 15000); // 15 seconds
+
+    return () => clearInterval(interval);
+  }, [autoSyncEnabled, isAuthorized, orders.length]);
+
+  const handleSyncToSheets = async (silent = false) => {
     if (orders.length === 0) {
-      alert("No records found in the ledger to sync.");
+      if (!silent) alert("No records found in the ledger to sync.");
       return;
     }
 
-    if (!window.confirm(`Attempting to push ${orders.length} records to the cloud ledger (Google Sheets). Continue?`)) return;
+    if (!silent && !window.confirm(`Attempting to push ${orders.length} records to the cloud ledger (Google Sheets). Continue?`)) return;
 
     setIsSyncing(true);
     try {
@@ -310,9 +332,9 @@ export const AdminDashboard = () => {
       }
 
       if (response.ok && data.status === "ok") {
-        alert("Protocol Sync Successful: Data transmitted to Google Sheets.");
+        if (!silent) alert("Protocol Sync Successful: Data transmitted to Google Sheets.");
       } else if (data.status === "skipped") {
-        alert("Sync Warning: Infrastructure credentials not configured in the environment.");
+        if (!silent) alert("Sync Warning: Infrastructure credentials not configured in the environment.");
       } else if (data.status === "error" || data.error) {
         throw new Error(data.details || data.error || "Unknown synchronization error");
       } else {
@@ -320,7 +342,7 @@ export const AdminDashboard = () => {
       }
     } catch (error) {
       console.error("Sync error:", error);
-      alert(`Sync Failure: ${error instanceof Error ? error.message : "Data transmission failed."}`);
+      if (!silent) alert(`Sync Failure: ${error instanceof Error ? error.message : "Data transmission failed."}`);
     } finally {
       setIsSyncing(false);
     }
@@ -520,8 +542,20 @@ export const AdminDashboard = () => {
         <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
           <h2 className="font-bold text-slate-700">Global Ledger</h2>
           <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
+              <input 
+                type="checkbox" 
+                id="autoSync" 
+                checked={autoSyncEnabled} 
+                onChange={(e) => setAutoSyncEnabled(e.target.checked)}
+                className="w-3 h-3 text-indigo-600 rounded focus:ring-indigo-500"
+              />
+              <label htmlFor="autoSync" className="text-[9px] font-black uppercase text-slate-500 cursor-pointer select-none">
+                Auto-Sync {autoSyncEnabled && <span className="text-indigo-500 animate-pulse">(ACTIVE)</span>}
+              </label>
+            </div>
             <button 
-              onClick={handleSyncToSheets}
+              onClick={() => handleSyncToSheets(false)}
               disabled={isSyncing}
               className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50 border-2 border-emerald-500/20"
             >

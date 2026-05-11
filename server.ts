@@ -51,7 +51,8 @@ async function startServer() {
         sheetId = sheetId.split("/")[0];
       }
 
-      console.log("[SERVER] Initializing Google Sheets API...");
+      console.log(`[SERVER] Processing sync for ${ordersToSync.length} orders...`);
+      
       const authClient = new google.auth.JWT({
         email,
         key: key.replace(/\\n/g, "\n"),
@@ -60,25 +61,33 @@ async function startServer() {
 
       const sheets = google.sheets({ version: "v4", auth: authClient });
       
-      // Get the spreadsheet to find the first sheet's name
       let sheetName = "Sheet1";
       try {
-        console.log("[SERVER] Fetching spreadsheet metadata...");
-        const spreadsheet = await sheets.spreadsheets.get({
-          spreadsheetId: sheetId,
-        });
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
         if (spreadsheet.data.sheets && spreadsheet.data.sheets.length > 0 && spreadsheet.data.sheets[0].properties) {
           sheetName = spreadsheet.data.sheets[0].properties.title || "Sheet1";
         }
-        console.log("[SERVER] Found active sheet tab:", sheetName);
-      } catch (getErr) {
-        console.warn("[SERVER] Could not fetch spreadsheet metadata. Check if the spreadsheet ID is correct and shared with the service account.", (getErr as any).message);
+      } catch (err) {
+        console.warn("[SERVER] Metadata fetch failed, defaulting to Sheet1");
       }
 
-      const values = ordersToSync.map((o: any) => {
+      // Fetch existing IDs from Column B to prevent duplicates
+      let existingIds: string[] = [];
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `'${sheetName}'!B:B`,
+        });
+        existingIds = (response.data.values || []).map(row => row[0]);
+      } catch (err) {
+        console.warn("[SERVER] Could not fetch existing IDs, will treat all as new.");
+      }
+
+      const results = { updated: 0, appended: 0 };
+      
+      for (const o of ordersToSync) {
         let dateStr = "N/A";
         try {
-          // Robust timestamp handling for Firestore Timestamps or JS Dates
           const timestamp = o.createdAt?.seconds 
             ? o.createdAt.seconds * 1000 
             : (typeof o.createdAt === 'string' ? new Date(o.createdAt).getTime() : o.createdAt);
@@ -96,7 +105,7 @@ async function startServer() {
           .map((item: any) => `${item.name} x${item.quantity}${item.selectedSize ? ` (${item.selectedSize})` : ""}`)
           .join(", ");
 
-        return [
+        const rowValues = [
           dateStr,
           o.id || "N/A",
           o.customerName || "N/A",
@@ -107,18 +116,33 @@ async function startServer() {
           o.status || "pending",
           o.location || "N/A"
         ];
-      });
 
-      console.log(`[SERVER] Appending ${values.length} rows to '${sheetName}'...`);
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: sheetId,
-        range: `'${sheetName}'!A:I`,
-        valueInputOption: "RAW",
-        requestBody: { values },
-      });
+        const existingIdx = existingIds.indexOf(o.id);
+        if (existingIdx !== -1) {
+          // Update existing row
+          const rowNum = existingIdx + 1;
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: `'${sheetName}'!A${rowNum}:I${rowNum}`,
+            valueInputOption: "RAW",
+            requestBody: { values: [rowValues] },
+          });
+          results.updated++;
+        } else {
+          // Append new row
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: sheetId,
+            range: `'${sheetName}'!A:I`,
+            valueInputOption: "RAW",
+            requestBody: { values: [rowValues] },
+          });
+          existingIds.push(o.id);
+          results.appended++;
+        }
+      }
 
-      console.log("[SERVER] Sync successful.");
-      return res.status(200).json({ status: "ok" });
+      console.log(`[SERVER] Sync outcome: ${results.updated} updated, ${results.appended} appended.`);
+      return res.status(200).json({ status: "ok", results });
     } catch (error: any) {
       console.error("[SERVER] Critical Sync Error:", error.message || error);
       return res.status(500).json({ 
