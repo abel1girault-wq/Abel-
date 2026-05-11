@@ -9,6 +9,7 @@ import { signInWithPopup } from 'firebase/auth';
 
 export const AdminDashboard = () => {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [newLocation, setNewLocation] = useState('');
@@ -203,9 +204,17 @@ export const AdminDashboard = () => {
   };
 
   const deleteOrder = async (orderId: string) => {
-    if (!window.confirm('Delete this record?')) return;
+    if (!window.confirm('Delete this record? This will also remove it from the cloud ledger.')) return;
     try {
       await deleteDoc(doc(db, 'orders', orderId));
+      
+      // Sync deletion to sheets
+      fetch("/api/delete-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      }).catch(err => console.error("Cloud delete failed:", err));
+      
     } catch (error) {
       handleFirestoreError(error, 'delete', `orders/${orderId}`);
     }
@@ -272,10 +281,11 @@ export const AdminDashboard = () => {
     }
   };
 
-  const filteredOrders = orders.filter(o => 
-    o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.id.includes(searchTerm)
-  );
+  const filteredOrders = orders.filter(o => {
+    const matchesSearch = o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) || o.id.includes(searchTerm);
+    if (showCompleted) return matchesSearch && o.status === 'completed';
+    return matchesSearch && o.status !== 'completed';
+  });
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
@@ -540,7 +550,23 @@ export const AdminDashboard = () => {
       {/* Order Ledger Container */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden min-h-[400px] shrink-0">
         <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
-          <h2 className="font-bold text-slate-700">Global Ledger</h2>
+          <div className="flex flex-col gap-1">
+            <h2 className="font-bold text-slate-700">Global Ledger</h2>
+            <div className="flex bg-slate-100 p-1 rounded-lg w-fit border border-slate-200">
+              <button 
+                onClick={() => setShowCompleted(false)}
+                className={`px-3 py-1 text-[9px] font-black uppercase rounded-md transition-all ${!showCompleted ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Active
+              </button>
+              <button 
+                onClick={() => setShowCompleted(true)}
+                className={`px-3 py-1 text-[9px] font-black uppercase rounded-md transition-all ${showCompleted ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Completed
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
               <input 
@@ -639,9 +665,19 @@ export const AdminDashboard = () => {
                     </select>
                   </td>
                   <td className="px-6 py-3 text-right">
-                    <button onClick={() => deleteOrder(order.id)} className="text-red-400 hover:text-red-600 p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      {order.status !== 'completed' && (
+                        <button 
+                          onClick={() => updateStatus(order, 'completed')}
+                          className="bg-emerald-50 text-emerald-600 px-2 py-1 rounded text-[8px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all border border-emerald-100"
+                        >
+                          Complete item
+                        </button>
+                      )}
+                      <button onClick={() => deleteOrder(order.id)} className="text-red-400 hover:text-red-600 p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
