@@ -10,7 +10,8 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
   // Health check for Render
   app.get("/api/health", (req, res) => {
@@ -77,14 +78,18 @@ async function startServer() {
       const values = ordersToSync.map((o: any) => {
         let dateStr = "N/A";
         try {
-          const timestamp = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : o.createdAt;
-          if (timestamp) {
-            dateStr = new Date(timestamp).toLocaleString();
+          // Robust timestamp handling for Firestore Timestamps or JS Dates
+          const timestamp = o.createdAt?.seconds 
+            ? o.createdAt.seconds * 1000 
+            : (typeof o.createdAt === 'string' ? new Date(o.createdAt).getTime() : o.createdAt);
+            
+          if (timestamp && !isNaN(timestamp)) {
+            dateStr = new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' });
           } else {
-            dateStr = new Date().toLocaleString();
+            dateStr = new Date().toLocaleString('en-US', { timeZone: 'UTC' });
           }
         } catch (e) {
-          dateStr = "Date Parse Error";
+          dateStr = new Date().toLocaleString();
         }
 
         const itemsString = (o.items || [])
