@@ -60,8 +60,9 @@ async function startServer() {
       let completedSheetName = "Completed";
 
       // Try to find if these sheets exist, if not create them
+      let spreadsheet;
       try {
-        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+        spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
         const sheetTitles = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
         
         const sheetsToCreate = [];
@@ -78,14 +79,39 @@ async function startServer() {
               }))
             }
           });
+          // Refresh spreadsheet metadata after creation
+          spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
         }
       } catch (err) {
         console.warn("[SERVER] Metadata fetch/create failed, defaulting to Sheet1", err);
         activeSheetName = "Sheet1";
       }
 
-      const results = { updated: 0, appended: 0, moved: 0 };
-      
+      // 1. Fetch current IDs and metadata from both sheets to minimize API calls
+      const fetchIds = async (name: string) => {
+        try {
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: sheetId,
+            range: `'${name}'!B:B`,
+          });
+          return (response.data.values || []).map(row => row[0]);
+        } catch (e) { return []; }
+      };
+
+      const [activeIds, completedIds] = await Promise.all([
+        fetchIds(activeSheetName),
+        fetchIds(completedSheetName)
+      ]);
+
+      const activeSheetId = spreadsheet?.data.sheets?.find(s => s.properties?.title === activeSheetName)?.properties?.sheetId;
+      const completedSheetId = spreadsheet?.data.sheets?.find(s => s.properties?.title === completedSheetName)?.properties?.sheetId;
+
+      const batchRequests: any[] = [];
+      const appendRequests: { sheet: string, values: any[] }[] = [
+        { sheet: activeSheetName, values: [] },
+        { sheet: completedSheetName, values: [] }
+      ];
+
       for (const o of ordersToSync) {
         let dateStr = "N/A";
         try {
@@ -117,78 +143,77 @@ async function startServer() {
           o.location || "N/A"
         ];
 
-        const targetSheet = o.status === "completed" ? completedSheetName : activeSheetName;
-        const otherSheet = o.status === "completed" ? activeSheetName : completedSheetName;
+        const isCompleted = o.status === "completed";
+        const targetSheet = isCompleted ? completedSheetName : activeSheetName;
+        const otherSheet = isCompleted ? activeSheetName : completedSheetName;
+        const otherIds = isCompleted ? activeIds : completedIds;
+        const targetIds = isCompleted ? completedIds : activeIds;
+        const otherSheetId = isCompleted ? activeSheetId : completedSheetId;
 
-        // 1. Check if it exists in the OTHER sheet (to move it)
-        let foundInOther = false;
-        try {
-          const otherResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId: sheetId,
-            range: `'${otherSheet}'!B:B`,
-          });
-          const otherIds = (otherResponse.data.values || []).map(row => row[0]);
-          const idx = otherIds.indexOf(o.id);
-          if (idx !== -1) {
-            // Delete from other sheet
-            const sheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-            const otherSheetId = sheetMeta.data.sheets?.find(s => s.properties?.title === otherSheet)?.properties?.sheetId;
-            
-            if (otherSheetId !== undefined) {
-              await sheets.spreadsheets.batchUpdate({
-                spreadsheetId: sheetId,
-                requestBody: {
-                  requests: [{
-                    deleteDimension: {
-                      range: {
-                        sheetId: otherSheetId,
-                        dimension: "ROWS",
-                        startIndex: idx,
-                        endIndex: idx + 1
-                      }
-                    }
-                  }]
-                }
-              });
-              foundInOther = true;
+        // Check for moves (if in other sheet, delete it)
+        const otherIdx = otherIds.indexOf(o.id);
+        if (otherIdx !== -1 && otherSheetId !== undefined) {
+          batchRequests.push({
+            deleteDimension: {
+              range: {
+                sheetId: otherSheetId,
+                dimension: "ROWS",
+                startIndex: otherIdx,
+                endIndex: otherIdx + 1
+              }
             }
-          }
-        } catch (err) {
-          console.warn(`[SERVER] Could not check/delete from ${otherSheet}`);
+          });
+          // Remove from local cache to prevent multiple deletions if id repeated (unlikely)
+          otherIds[otherIdx] = "__DELETED__";
         }
 
-        // 2. Sync to target sheet (Update or Append)
-        let existingIdsInTarget: string[] = [];
-        try {
-          const targetResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId: sheetId,
-            range: `'${targetSheet}'!B:B`,
-          });
-          existingIdsInTarget = (targetResponse.data.values || []).map(row => row[0]);
-        } catch (err) {}
-
-        const targetIdx = existingIdsInTarget.indexOf(o.id);
+        // Update or Append in target
+        const targetIdx = targetIds.indexOf(o.id);
         if (targetIdx !== -1) {
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: sheetId,
-            range: `'${targetSheet}'!A${targetIdx + 1}:I${targetIdx + 1}`,
-            valueInputOption: "RAW",
-            requestBody: { values: [rowValues] },
+          // Add to batch update values
+          batchRequests.push({
+            updateCells: {
+              range: {
+                sheetId: isCompleted ? completedSheetId : activeSheetId,
+                startRowIndex: targetIdx,
+                endRowIndex: targetIdx + 1,
+                startColumnIndex: 0,
+                endColumnIndex: 9
+              },
+              rows: [{
+                values: rowValues.map(v => ({ userEnteredValue: { [typeof v === 'number' ? 'numberValue' : 'stringValue']: v } }))
+              }],
+              fields: "userEnteredValue"
+            }
           });
-          results.updated++;
         } else {
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: sheetId,
-            range: `'${targetSheet}'!A:I`,
-            valueInputOption: "RAW",
-            requestBody: { values: [rowValues] },
-          });
-          results.appended++;
-          if (foundInOther) results.moved++;
+          // Accumulate for append
+          appendRequests.find(r => r.sheet === targetSheet)?.values.push(rowValues);
+          targetIds.push(o.id); // Prevent duplicate appends in same batch
         }
       }
 
-      return res.status(200).json({ status: "ok", results });
+      // Execute batch deletions/updates
+      if (batchRequests.length > 0) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: { requests: batchRequests }
+        });
+      }
+
+      // Execute appends
+      for (const req of appendRequests) {
+        if (req.values.length > 0) {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: sheetId,
+            range: `'${req.sheet}'!A:I`,
+            valueInputOption: "RAW",
+            requestBody: { values: req.values },
+          });
+        }
+      }
+
+      return res.status(200).json({ status: "ok", results: { processed: ordersToSync.length } });
     } catch (error: any) {
       console.error("[SERVER] Critical Sync Error:", error.message || error);
       return res.status(500).json({ error: "Failed to sync to Google Sheets", details: error.message });
@@ -218,42 +243,112 @@ async function startServer() {
       });
       const sheets = google.sheets({ version: "v4", auth: authClient });
       const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-      
-      for (const sheet of spreadsheet.data.sheets || []) {
+      const sheetsFound = spreadsheet.data.sheets || [];
+      console.log(`[SERVER] Searching for order ${orderId} across ${sheetsFound.length} sheets...`);
+
+      for (const sheet of sheetsFound) {
         const sheetName = sheet.properties?.title;
         const sheetIdInternal = sheet.properties?.sheetId;
         if (!sheetName || sheetIdInternal === undefined) continue;
 
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: sheetId,
-          range: `'${sheetName}'!B:B`,
-        });
-        const ids = (response.data.values || []).map(row => row[0]);
-        const idx = ids.indexOf(orderId);
-
-        if (idx !== -1) {
-          await sheets.spreadsheets.batchUpdate({
+        try {
+          const response = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            requestBody: {
-              requests: [{
-                deleteDimension: {
-                  range: {
-                    sheetId: sheetIdInternal,
-                    dimension: "ROWS",
-                    startIndex: idx,
-                    endIndex: idx + 1
-                  }
-                }
-              }]
-            }
+            range: `'${sheetName}'!B:B`,
           });
-          console.log(`[SERVER] Deleted order ${orderId} from sheet ${sheetName}`);
+          const ids = (response.data.values || []).map(row => String(row[0]).trim());
+          const idx = ids.indexOf(String(orderId).trim());
+
+          if (idx !== -1) {
+            console.log(`[SERVER] Found match on sheet "${sheetName}" at row ${idx + 1}. Executing removal...`);
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: sheetId,
+              requestBody: {
+                requests: [{
+                  deleteDimension: {
+                    range: {
+                      sheetId: sheetIdInternal,
+                      dimension: "ROWS",
+                      startIndex: idx,
+                      endIndex: idx + 1
+                    }
+                  }
+                }]
+              }
+            });
+          }
+        } catch (innerErr) {
+          console.warn(`[SERVER] Failed to search/delete on sheet ${sheetName}:`, innerErr);
         }
       }
 
       return res.status(200).json({ status: "ok" });
     } catch (error: any) {
       console.error("[SERVER] Delete sync error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/sync-stock", async (req, res) => {
+    try {
+      const { products } = req.body;
+      if (!products || !Array.isArray(products)) return res.status(400).json({ error: "No products provided" });
+
+      const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const key = process.env.GOOGLE_PRIVATE_KEY;
+      let sheetId = process.env.GOOGLE_SHEET_ID;
+
+      if (!email || !key || !sheetId) return res.status(200).json({ status: "skipped" });
+
+      if (sheetId.includes("spreadsheets/d/")) {
+        const match = sheetId.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (match) sheetId = match[1];
+      }
+
+      const authClient = new google.auth.JWT({
+        email,
+        key: key.replace(/\\n/g, "\n"),
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      });
+      const sheets = google.sheets({ version: "v4", auth: authClient });
+
+      const sheetName = "Stock";
+      
+      // Ensure "Stock" sheet exists
+      try {
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+        const titles = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
+        if (!titles.includes(sheetName)) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: sheetId,
+            requestBody: {
+              requests: [{ addSheet: { properties: { title: sheetName } } }]
+            }
+          });
+        }
+      } catch (err) {}
+
+      // Prepare header and data
+      const header = ["Product ID", "Product Name", "Current Stock", "Last Updated"];
+      const rows = products.map((p: any) => [
+        p.id || "N/A",
+        p.name || "N/A",
+        p.stock !== undefined ? p.stock : 0,
+        new Date().toLocaleString('en-US', { timeZone: 'UTC' })
+      ]);
+
+      // Overwrite the entire Stock sheet
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `'${sheetName}'!A1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [header, ...rows] },
+      });
+
+      console.log(`[SERVER] Synced ${products.length} stock records to ${sheetName}`);
+      return res.status(200).json({ status: "ok" });
+    } catch (error: any) {
+      console.error("[SERVER] Stock sync error:", error);
       return res.status(500).json({ error: error.message });
     }
   });
