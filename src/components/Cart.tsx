@@ -264,6 +264,13 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
                       <p className="text-[7px] text-rose-500 uppercase tracking-tighter text-center mt-1 font-bold">Detected data mismatch. Please provide valid contact details to proceed.</p>
                     </motion.div>
                   )}
+
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-start gap-3">
+                    <Shield className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <p className="text-[10px] text-slate-500 leading-snug">
+                      All sales are final, so we can't offer any refunds once your order is confirmed!
+                    </p>
+                  </div>
                   
                   <div className="pt-4 flex gap-2">
                     <button type="button" onClick={() => { setCheckoutStep('cart'); setValidationError(null); }} className="px-4 py-3 border border-slate-200 text-slate-400 font-bold rounded-xl uppercase text-[10px] hover:bg-slate-50">Back</button>
