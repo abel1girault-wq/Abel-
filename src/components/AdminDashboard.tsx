@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut, Minus, Radar } from 'lucide-react';
+import { Package, Trash2, ShieldCheck, Search, Plus, X, MapPin, LogOut, Minus, Radar, FileSpreadsheet } from 'lucide-react';
 import { Order, Product } from '../types';
 import { ADMIN_PASSWORD } from '../constants';
 import { db, auth, googleProvider, handleFirestoreError } from '../lib/firebase';
@@ -22,6 +22,11 @@ export const AdminDashboard = () => {
   const [password, setPassword] = useState('');
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [activeTab, setActiveTab] = useState<'orders' | 'stock' | 'config'>('orders');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [autoSync, setAutoSync] = useState(() => {
+    return localStorage.getItem('fidgethub_auto_sync') === 'true';
+  });
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
@@ -100,6 +105,16 @@ export const AdminDashboard = () => {
       unsubscribeLocs();
     };
   }, []);
+
+  // Auto-sync effect
+  useEffect(() => {
+    if (autoSync && orders.length > 0 && !isSyncing) {
+      const timer = setTimeout(() => {
+        handleSyncToSheets(true);
+      }, 3000); // 3s debounce
+      return () => clearTimeout(timer);
+    }
+  }, [orders, autoSync]);
 
   const handleRestoreDefaults = async () => {
     if (!window.confirm('Restore default factory inventory and locations? This will add initial data to the system.')) return;
@@ -220,6 +235,41 @@ export const AdminDashboard = () => {
     } catch (error) {
       handleFirestoreError(error, 'update', `products/${productId}`);
     }
+  };
+
+  const handleSyncToSheets = async (silent = false) => {
+    if (orders.length === 0) {
+      if (!silent) alert("No data available to sync.");
+      return;
+    }
+    
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/sync-sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders })
+      });
+      
+      const result = await response.json();
+      if (response.ok) {
+        setLastSynced(new Date().toLocaleTimeString());
+        if (!silent) alert(result.message);
+      } else {
+        if (!silent) alert("Sync Error: " + (result.error || "Unknown server error"));
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      if (!silent) alert("Failed to connect to the sync terminal. Verify server is running.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const toggleAutoSync = () => {
+    const newValue = !autoSync;
+    setAutoSync(newValue);
+    localStorage.setItem('fidgethub_auto_sync', newValue.toString());
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -378,6 +428,13 @@ export const AdminDashboard = () => {
               <span className="text-[9px] font-black uppercase text-emerald-600">Secure Session Active</span>
             </div>
           )}
+          <button 
+            onClick={() => handleSyncToSheets()}
+            disabled={isSyncing}
+            className={`bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 ${isSyncing ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <FileSpreadsheet className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> {isSyncing ? 'Syncing...' : 'Sync Sheets'}
+          </button>
           <button 
             onClick={() => setShowSettings(true)}
             className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-slate-50 transition-all"
@@ -889,6 +946,40 @@ export const AdminDashboard = () => {
                         </button>
                       </div>
                     ))}
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-slate-100">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-3 block">Integrations</label>
+                  <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100 flex flex-col gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className="bg-emerald-100 p-2 rounded-lg">
+                        <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-[10px] font-black uppercase text-emerald-800 tracking-tight block mb-1">Google Sheets Integration</span>
+                        <p className="text-[9px] text-emerald-600 font-medium leading-relaxed italic">
+                          Automatic background synchronization export to your spreadsheet.
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-emerald-100">
+                      <div>
+                        <span className="text-[9px] font-black uppercase text-emerald-700 block">Auto-Sync Protocol</span>
+                        {lastSynced && (
+                          <span className="text-[8px] text-emerald-500 font-mono">Last synced: {lastSynced}</span>
+                        )}
+                      </div>
+                      <button 
+                        onClick={toggleAutoSync}
+                        className={`w-12 h-6 rounded-full relative transition-all duration-300 ${autoSync ? 'bg-emerald-600' : 'bg-slate-300'}`}
+                      >
+                        <motion.div 
+                          animate={{ x: autoSync ? 24 : 4 }}
+                          className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                        />
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="pt-6 border-t border-slate-100">
