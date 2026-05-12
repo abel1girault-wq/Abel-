@@ -1,26 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Force long polling to bypass potential WebSocket blocks/hangs in iframe environments
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-
-export async function testFirestoreConnection() {
-  try {
-    // Attempt to fetch a non-existent document just to check connectivity
-    await getDocFromServer(doc(db, '_internal_', 'connection_test'));
-    console.log('Firebase Connected Successfully');
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration or internet connection.");
-    } else {
-      console.error("Firebase connection error:", error);
-    }
-  }
-}
 
 export interface FirestoreErrorInfo {
   error: string;

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingBag, X, Trash2, Plus, Minus, CreditCard, CheckCircle, Palette, Ruler, Send, Zap, Shield } from 'lucide-react';
 import { CartItem, Order, Product } from '../types';
 import { db, handleFirestoreError } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, getDocs } from 'firebase/firestore';
 
 interface CartProps {
   isOpen: boolean;
@@ -53,12 +53,18 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
       return;
     }
     
-    const unsubscribe = onSnapshot(collection(db, 'locations'), (snapshot) => {
-      const locs = snapshot.docs.map(doc => doc.data().name) as string[];
-      setAvailableLocations(locs);
-    });
+    // One-time fetch for locations instead of live sync
+    const fetchLocations = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'locations'));
+        const locs = snapshot.docs.map(doc => doc.data().name) as string[];
+        setAvailableLocations(locs);
+      } catch (error) {
+        console.error("Failed to load locations:", error);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchLocations();
   }, [isOpen]);
 
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -79,14 +85,22 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
     }
 
     if (!validatePhone(cleanPhone)) {
-      setValidationError("INVALID SIGNAL: PHONE NUMBER FORMAT NOT RECOGNIZED (USE 10+ DIGITS)");
+      setValidationError("INVALID PHONE NUMBER FORMAT (USE 10+ DIGITS)");
+      return;
+    }
+
+    const total = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
+
+    if (isNaN(total) || total < 0 || items.length === 0) {
+      setValidationError("DATA CORRUPTION DETECTED: INVALID ORDER STATE.");
       return;
     }
 
     setIsSubmitting(true);
+    setValidationError(null);
 
-    const newOrder = {
-      customerName: customer.name,
+    const newOrder: any = {
+      customerName: customer.name.trim(),
       customerEmail: cleanEmail,
       customerPhone: cleanPhone.replace(/\s+/g, ''),
       location: customer.location,
@@ -96,36 +110,25 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
       createdAt: serverTimestamp(),
     };
 
+    console.log("[CART] Initiating checkout protocol...", newOrder);
+
     try {
       const docRef = await addDoc(collection(db, 'orders'), newOrder);
-      
-      // Sync to Google Sheets via backend
-      try {
-        fetch('/api/sync-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            order: { 
-              ...newOrder, 
-              id: docRef.id,
-              createdAt: { seconds: Math.floor(Date.now() / 1000) } // Formatting for the server
-            } 
-          })
-        });
-      } catch (syncError) {
-        console.error("Sheet sync failed:", syncError);
-      }
+      console.log("[CART] Order anchored successfully:", docRef.id);
       
       setCheckoutStep('success');
+      
       setTimeout(() => {
         onClear();
         onClose();
         setIsSubmitting(false);
         setCheckoutStep('cart');
         setCustomer({ name: '', email: '', phone: '', address: '', location: '' });
-      }, 1500);
-    } catch (error) {
+      }, 2500);
+    } catch (error: any) {
+      console.error("[CART] Checkout failed:", error);
       setIsSubmitting(false);
+      setValidationError("ORDER FAILED: " + (error.message || "DATABASE REJECTED"));
       handleFirestoreError(error, 'write' as any, 'orders');
     }
   };
@@ -217,7 +220,7 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
                       <Send className="w-3 h-3" /> Contact & Delivery
                     </h3>
                     <p className="text-[10px] text-slate-500 leading-tight">
-                      Communication signals (Email & Phone) must be authentic. <span className="text-rose-500 font-bold">Orders with fake contact information will be automatically cancelled.</span>
+                      Please enter your real contact details. <span className="text-rose-500 font-bold">Fake orders will be deleted.</span>
                     </p>
                   </div>
 
@@ -256,12 +259,12 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
 
                   {validationError && (
                     <motion.div 
+                      key="val-error"
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="bg-rose-50 border border-rose-100 p-3 rounded-lg"
                     >
                       <p className="text-[9px] font-black text-rose-700 uppercase tracking-wider text-center">{validationError}</p>
-                      <p className="text-[7px] text-rose-500 uppercase tracking-tighter text-center mt-1 font-bold">Detected data mismatch. Please provide valid contact details to proceed.</p>
                     </motion.div>
                   )}
 
@@ -280,9 +283,9 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
                       className={`flex-1 ${isSubmitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-black py-4 rounded-xl uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-all`}
                     >
                       {isSubmitting ? (
-                        <>TRANSMITTING SIGNAL... <Zap className="w-3.5 h-3.5 animate-pulse" /></>
+                        <>Processing... <Zap className="w-3.5 h-3.5 animate-pulse" /></>
                       ) : (
-                        <>Confirm Final Order <Send className="w-3.5 h-3.5" /></>
+                        <>Confirm Order <Send className="w-3.5 h-3.5" /></>
                       )}
                     </button>
                   </div>
@@ -294,8 +297,8 @@ export const Cart = ({ isOpen, onClose, items, products, onUpdateQuantity, onRem
                   <div className="w-20 h-20 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-xl shadow-green-100">
                     <CheckCircle className="w-10 h-10" />
                   </div>
-                  <h3 className="text-xl font-black uppercase text-slate-800 tracking-tight mb-2">Authorization Confirmed</h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-relaxed">Awaiting departure sequence from sector-7 control base.</p>
+                  <h3 className="text-xl font-black uppercase text-slate-800 tracking-tight mb-2">Order Confirmed</h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-relaxed">Thank you for your order. We are processing it now.</p>
                 </div>
               )}
             </div>

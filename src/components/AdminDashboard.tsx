@@ -153,12 +153,12 @@ export const AdminDashboard = () => {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     // Use master key from constants or hardcoded fallback
-    if (password === ADMIN_PASSWORD) {
+    if (password.trim() === ADMIN_PASSWORD) {
       setIsAuthorized(true);
       sessionStorage.setItem('fidgethub_admin_session', 'authorized');
       setAuthError(null);
     } else {
-      setAuthError('Invalid Master Key. Access Denied.');
+      setAuthError('Invalid Admin Password. Access Denied.');
       setPassword('');
     }
   };
@@ -190,32 +190,15 @@ export const AdminDashboard = () => {
     try {
       const orderId = order.id;
       await updateDoc(doc(db, 'orders', orderId), { status });
-      
-      // Automatic sync on status update
-      console.log(`[ADMIN] Triggering auto-sync for order ${orderId}...`);
-      fetch("/api/sync-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order: { ...order, status } }),
-      }).catch(err => console.error("Auto-sync failed:", err));
-      
     } catch (error) {
       handleFirestoreError(error, 'update', `orders/${order.id}`);
     }
   };
 
   const deleteOrder = async (orderId: string) => {
-    if (!window.confirm('Delete this record? This will also remove it from the cloud ledger.')) return;
+    if (!window.confirm('Delete this record?')) return;
     try {
       await deleteDoc(doc(db, 'orders', orderId));
-      
-      // Sync deletion to sheets
-      fetch("/api/delete-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
-      }).catch(err => console.error("Cloud delete failed:", err));
-      
     } catch (error) {
       handleFirestoreError(error, 'delete', `orders/${orderId}`);
     }
@@ -234,18 +217,6 @@ export const AdminDashboard = () => {
     try {
       const finalStock = Math.max(0, newStock);
       await updateDoc(doc(db, 'products', productId), { stock: finalStock });
-      
-      // Auto-sync stock levels to Cloud Ledger
-      const updatedProducts = products.map(p => 
-        p.id === productId ? { ...p, stock: finalStock } : p
-      );
-      
-      fetch("/api/sync-stock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ products: updatedProducts }),
-      }).catch(err => console.error("[STOCK] Cloud sync failure:", err));
-
     } catch (error) {
       handleFirestoreError(error, 'update', `products/${productId}`);
     }
@@ -304,78 +275,6 @@ export const AdminDashboard = () => {
   const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
 
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
-
-  // Automatic Sync Timer
-  useEffect(() => {
-    if (!autoSyncEnabled || !isAuthorized || orders.length === 0) return;
-
-    console.log("[ADMIN] Auto-sync timer initialized (15s interval)");
-    const interval = setInterval(() => {
-      console.log("[ADMIN] Triggering scheduled auto-sync...");
-      handleSyncToSheets(true); // Call with silent=true
-    }, 15000); // 15 seconds
-
-    return () => clearInterval(interval);
-  }, [autoSyncEnabled, isAuthorized, orders.length]);
-
-  const handleSyncToSheets = async (silent = false) => {
-    if (orders.length === 0) {
-      if (!silent) alert("No records found in the ledger to sync.");
-      return;
-    }
-
-    if (!silent && !window.confirm(`Attempting to push ${orders.length} records to the cloud ledger (Google Sheets). Continue?`)) return;
-
-    setIsSyncing(true);
-    try {
-      // Environment check
-      if (window.location.hostname.includes('netlify.app')) {
-        throw new Error("This environment (Netlify) is static and does not support the required Node.js backend. Please use the AI Studio development preview to sync data.");
-      }
-
-      const response = await fetch("/api/sync-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders }),
-      });
-
-      let data;
-      const contentType = response.headers.get("content-type");
-      
-      if (response.status === 404) {
-        throw new Error("Cloud Endpoint Not Found (404). This usually means the backend server is not running or you are on a static host like Netlify.");
-      }
-
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json();
-      } else {
-        const text = await response.text();
-        throw new Error(`Cloud Protocol Error: Server returned non-JSON response (${response.status}). Check if the backend is active.`);
-      }
-
-      if (response.ok && data.status === "ok") {
-        if (!silent) {
-          const results = data.results || {};
-          console.log("[ADMIN] Sync Success:", results);
-          alert(`Protocol Sync Successful!\nProcessed: ${results.processed || 0} orders.`);
-        }
-      } else if (data.status === "skipped") {
-        if (!silent) alert("Sync Warning: Infrastructure credentials not configured in the environment.");
-      } else if (data.status === "error" || data.error) {
-        throw new Error(data.details || data.error || "Unknown synchronization error");
-      } else {
-        throw new Error(`Unexpected server response: ${JSON.stringify(data)}`);
-      }
-    } catch (error) {
-      console.error("Sync error:", error);
-      if (!silent) alert(`Sync Failure: ${error instanceof Error ? error.message : "Data transmission failed."}`);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleLogout = () => {
     sessionStorage.removeItem('fidgethub_admin_session');
     setIsAuthorized(false);
@@ -404,9 +303,9 @@ export const AdminDashboard = () => {
               <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-slate-100">
                 <ShieldCheck className="w-8 h-8 text-white" />
               </div>
-              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Protocol Gate</h2>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Admin Login</h2>
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight mb-8">
-                {authError || "Secure terminal access requires master protocol key."}
+                {authError || "Secure terminal access requires admin password."}
               </p>
               
               <form onSubmit={handleAdminAuth} className="space-y-4">
@@ -416,8 +315,8 @@ export const AdminDashboard = () => {
                     value={password}
                     autoFocus
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="ENTER PROTOCOL KEY"
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-4 text-center font-black tracking-[0.5em] text-slate-800 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all transition-duration-300"
+                    placeholder="ENTER PASSWORD"
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-4 text-center font-black tracking-[0.2em] text-slate-800 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all transition-duration-300"
                   />
                   {authError && (
                     <motion.div 
@@ -453,13 +352,13 @@ export const AdminDashboard = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-indigo-600" /> Command Center
+            <ShieldCheck className="w-6 h-6 text-indigo-600" /> Admin Dashboard
           </h1>
           <div className="flex bg-slate-100 p-1 rounded-xl w-fit border border-slate-200 mt-2">
             {[
-              { id: 'orders', label: 'Order Ledger', icon: Radar },
-              { id: 'stock', label: 'Stock Pool', icon: Package },
-              { id: 'config', label: 'System Config', icon: MapPin }
+              { id: 'orders', label: 'Orders', icon: Package },
+              { id: 'stock', label: 'Stock', icon: Package },
+              { id: 'config', label: 'Settings', icon: MapPin }
             ].map(tab => (
               <button 
                 key={tab.id}
@@ -476,7 +375,7 @@ export const AdminDashboard = () => {
           {isAuthorized && (
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] font-black uppercase text-emerald-600">Secure Protocol Active</span>
+              <span className="text-[9px] font-black uppercase text-emerald-600">Secure Session Active</span>
             </div>
           )}
           <button 
@@ -535,29 +434,14 @@ export const AdminDashboard = () => {
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden min-h-[500px]">
               <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
                 <div>
-                  <h2 className="font-black text-slate-800 uppercase tracking-tight text-lg">Inventory Stock Pool</h2>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Real-time object availability monitoring</p>
+                  <h2 className="font-black text-slate-800 uppercase tracking-tight text-lg">Inventory Stock</h2>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Real-time stock monitoring</p>
                 </div>
                 <div className="flex gap-2">
                   <div className="px-3 py-1.5 bg-amber-50 border border-amber-100 rounded-lg flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                     <span className="text-[9px] font-black uppercase text-amber-600">Low Stock Threshold: 10 units</span>
                   </div>
-                  <button 
-                    onClick={() => {
-                      setIsSyncing(true);
-                      fetch("/api/sync-stock", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ products }),
-                      }).then(() => alert("Stock Ledger Updated on Cloud."))
-                        .finally(() => setIsSyncing(false));
-                    }}
-                    disabled={isSyncing}
-                    className="bg-slate-800 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all disabled:opacity-50"
-                  >
-                    <Radar className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} /> Force Sync Stock
-                  </button>
                 </div>
               </div>
 
@@ -653,7 +537,7 @@ export const AdminDashboard = () => {
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col mb-4 overflow-hidden min-h-[400px] shrink-0">
         <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
           <div className="flex flex-col gap-1">
-            <h2 className="font-bold text-slate-700">Global Ledger</h2>
+            <h2 className="font-bold text-slate-700">Orders</h2>
             <div className="flex bg-slate-100 p-1 rounded-lg w-fit border border-slate-200">
               <button 
                 onClick={() => setShowCompleted(false)}
@@ -670,26 +554,6 @@ export const AdminDashboard = () => {
             </div>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
-              <input 
-                type="checkbox" 
-                id="autoSync" 
-                checked={autoSyncEnabled} 
-                onChange={(e) => setAutoSyncEnabled(e.target.checked)}
-                className="w-3 h-3 text-indigo-600 rounded focus:ring-indigo-500"
-              />
-              <label htmlFor="autoSync" className="text-[9px] font-black uppercase text-slate-500 cursor-pointer select-none">
-                Auto-Sync {autoSyncEnabled && <span className="text-indigo-500 animate-pulse">(ACTIVE)</span>}
-              </label>
-            </div>
-            <button 
-              onClick={() => handleSyncToSheets(false)}
-              disabled={isSyncing}
-              className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:opacity-50 border-2 border-emerald-500/20"
-            >
-              <Radar className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> 
-              {isSyncing ? 'Synchronizing...' : 'Sync to Google Sheets'}
-            </button>
             <div className="relative flex-1 md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
@@ -802,18 +666,18 @@ export const AdminDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden h-[600px]">
                 <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                  <h2 className="font-bold text-slate-700 uppercase text-[10px] tracking-widest">Inventory Master List</h2>
+                  <h2 className="font-bold text-slate-700 uppercase text-[10px] tracking-widest">Product List</h2>
                   <button onClick={() => setShowAddProduct(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all">
-                    <Plus className="w-3 h-3" /> New Object
+                    <Plus className="w-3 h-3" /> New Product
                   </button>
                 </div>
                 <div className="flex-1 overflow-auto">
                   <table className="w-full text-left border-collapse">
                     <thead className="sticky top-0 z-10 bg-white shadow-sm">
                       <tr className="bg-slate-100 text-[9px] uppercase font-black text-slate-500 border-b border-slate-200">
-                        <th className="px-6 py-3">Designation</th>
-                        <th className="px-6 py-3">Zone</th>
-                        <th className="px-6 py-3 text-right">Base Value</th>
+                        <th className="px-6 py-3">Product Name</th>
+                        <th className="px-6 py-3">Location</th>
+                        <th className="px-6 py-3 text-right">Price</th>
                         <th className="px-6 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -846,13 +710,13 @@ export const AdminDashboard = () => {
 
               <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col p-6 overflow-hidden">
                 <h3 className="font-black text-slate-800 uppercase tracking-tight mb-4 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-indigo-600" /> Deployment Zones
+                  <MapPin className="w-4 h-4 text-indigo-600" /> Locations
                 </h3>
                 <div className="space-y-4">
                   <div className="flex gap-2">
                     <input 
                       type="text" 
-                      placeholder="NEW ZONE NAME" 
+                      placeholder="NEW LOCATION NAME" 
                       value={newLocation}
                       onChange={(e) => setNewLocation(e.target.value.toUpperCase())}
                       className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-black focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -875,7 +739,7 @@ export const AdminDashboard = () => {
                     onClick={handleRestoreDefaults}
                     className="w-full mt-4 flex items-center justify-center gap-2 py-3 bg-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
                   >
-                    <Radar className="w-4 h-4" /> Factory Reset Assets
+                    <Radar className="w-4 h-4" /> Reset to Defaults
                   </button>
                 </div>
               </div>
@@ -892,7 +756,7 @@ export const AdminDashboard = () => {
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="fixed inset-0 m-auto w-full max-w-lg h-fit bg-white rounded-2xl shadow-2xl z-[110] border border-slate-200 overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                 <h3 className="font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                  <Package className="w-5 h-5 text-indigo-600" /> New Inventory Object
+                  <Package className="w-5 h-5 text-indigo-600" /> New Product
                 </h3>
                 <button onClick={() => setShowAddProduct(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
                   <X className="w-5 h-5 text-slate-400" />
@@ -916,14 +780,6 @@ export const AdminDashboard = () => {
                             Upload Photo
                             <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                           </label>
-                          <button 
-                            type="button"
-                            onClick={handleGenerateAIImage}
-                            disabled={isGenerating}
-                            className="bg-indigo-50 border border-indigo-100 px-3 py-2 rounded-lg text-[10px] font-black uppercase text-indigo-600 hover:bg-indigo-100 transition-all disabled:opacity-50"
-                          >
-                            {isGenerating ? 'Generating...' : 'AI Generate'}
-                          </button>
                         </div>
                         <input 
                           type="text" 
@@ -936,11 +792,11 @@ export const AdminDashboard = () => {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Object Designation</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Product Name</label>
                     <input required type="text" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} className="hardware-input w-full" placeholder="Fidget Model-X" />
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Base Location</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Location</label>
                     <select 
                       required 
                       value={newProduct.location} 
@@ -954,7 +810,7 @@ export const AdminDashboard = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Available Colours (Comma separated)</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Available Colors (Comma separated)</label>
                     <input type="text" value={newProduct.colors} onChange={e => setNewProduct({...newProduct, colors: e.target.value})} className="hardware-input w-full" placeholder="Black, White, Chrome" />
                   </div>
                   <div>
@@ -963,12 +819,12 @@ export const AdminDashboard = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Brief Data (Description)</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Description</label>
                   <textarea required value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} className="hardware-input w-full h-20 resize-none" placeholder="..." />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Base Value (SAR)</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Price (SAR)</label>
                     <input required type="number" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} className="hardware-input w-full" placeholder="0.00" />
                   </div>
                   <div>
@@ -983,7 +839,7 @@ export const AdminDashboard = () => {
                   </div>
                 </div>
                 <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-xl uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                  Register Object
+                  Add Product
                 </button>
               </form>
             </motion.div>

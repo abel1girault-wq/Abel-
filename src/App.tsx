@@ -13,8 +13,8 @@ import { Product, CartItem } from './types';
 import { MOCK_PRODUCTS } from './constants';
 import { motion } from 'motion/react';
 import { Radar, ShoppingCart, Package } from 'lucide-react';
-import { db, testFirestoreConnection } from './lib/firebase';
-import { collection, onSnapshot, query, addDoc, getDocs } from 'firebase/firestore';
+import { db } from './lib/firebase';
+import { collection, onSnapshot, query, addDoc } from 'firebase/firestore';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -37,8 +37,6 @@ export default function App() {
   }, [cartItems]);
 
   useEffect(() => {
-    testFirestoreConnection();
-    
     // Security: Clear legacy persistent auth logs if any
     localStorage.removeItem('fidgethub_auth');
     
@@ -75,7 +73,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isSeeding]);
+  }, []);
 
   const addToCart = (product: Product, selectedColor?: string, selectedSize?: string) => {
     // Stock limit check
@@ -144,7 +142,7 @@ export default function App() {
                     className="inline-flex items-center gap-2 mb-6 bg-slate-50 border border-slate-200 px-3 py-1 rounded-full"
                   >
                     <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">System Ready // Series 01 Launch</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">New Collection // Series 01</span>
                   </motion.div>
                   <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-slate-900 uppercase leading-[0.9] mb-8">
                     3D <br />
@@ -163,7 +161,7 @@ export default function App() {
                 {/* Visual Accent */}
                 <div className="absolute bottom-10 left-10 flex flex-col gap-2 opacity-20 hidden lg:flex">
                   <div className="w-1 h-32 bg-slate-200" />
-                  <span className="text-[10px] whitespace-nowrap rotate-90 origin-left mt-32 font-black text-slate-400 uppercase tracking-widest leading-none">Axis Control // 001</span>
+                  <span className="text-[10px] whitespace-nowrap rotate-90 origin-left mt-32 font-black text-slate-400 uppercase tracking-widest leading-none">High Quality // 001</span>
                 </div>
               </section>
 

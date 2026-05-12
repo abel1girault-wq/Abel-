@@ -1,6 +1,6 @@
 import { Product } from './types';
 
-export const ADMIN_PASSWORD = "Apollo@123";
+export const ADMIN_PASSWORD = "crioxt10";
 
 // Product Information Constants
 export const MOCK_PRODUCTS: Product[] = [

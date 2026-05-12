@@ -145,6 +145,15 @@
     "orders": {
       "schema": "Order",
       "description": "Collection of all customer orders."
+    },
+    "locations": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" }
+        }
+      },
+      "description": "Collection of available collection hubs."
     }
   }
 }
